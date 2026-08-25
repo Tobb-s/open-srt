@@ -308,8 +308,43 @@ Corregido:
 las que se evalúa, así que la cobertura del 75 % **no es una validación independiente**.
 Hace falta medir archivos nuevos y comprobar contra ellos.
 
+## Lanzado
+
+**https://open-srt.vercel.app** · repo público
+[Tobb-s/open-srt](https://github.com/Tobb-s/open-srt)
+
+Verificado en producción, no sólo que responde 200:
+
+- `/es` y `/en` sirven; detecta WebGPU y elige `turbo-webgpu`.
+- **113 palabras en 37 s** sobre el archivo de 1 min, con el voseo intacto.
+- La estimación previa dijo «entre 29 y 40 segundos» y tardó 37: **acertó dentro del rango**.
+- **Red: una sola petición GET al propio sitio.** Cero POST, cero subida de audio.
+
+### La privacidad pasó de promesa a mecanismo
+
+El despliegue traía inyectado el widget de comentarios de Vercel —un tercero con acceso al
+DOM—. No subía audio, pero en una herramienta cuya propuesta es que nada sale de tu equipo,
+un tercero en la página contradice el mensaje.
+
+La política de seguridad de `next.config.ts` hace que **el navegador imponga la promesa** en
+vez de confiar en que el código se porte bien. `connect-src` enumera todo lo que la página
+puede contactar —el propio sitio y Hugging Face, de donde baja el modelo—, así que aunque se
+colara un script no tendría a dónde mandar nada. Comprobado: el widget no monta, no deja
+variables globales, y una carga directa del script se bloquea.
+
+`script-src` lleva `'unsafe-inline'` porque Next hidrata las páginas estáticas con scripts en
+línea; sin eso falla con el error 412 de React y la aplicación no arranca. Es una concesión
+aceptable porque no es la línea que protege la privacidad.
+
+### Dos trampas del despliegue
+
+- **Vercel usa `.vercelignore`, no `.gitignore`.** Sin él intenta subir los 192 MB del corpus
+  y aborta. Pero `scripts/` **sí** debe subirse: el test del remuestreo importa
+  `scripts/lib/wav.mjs` y el build verifica los tipos de todo el proyecto.
+- El widget de Vercel se inyecta en el HTML servido, así que el tag sigue ahí aunque no
+  ejecute. Se puede quitar del todo desde la configuración del proyecto.
+
 ## Pendiente
 
 - **Validar el rango con archivos nuevos**, independientes de los que lo definieron.
 - Firefox como navegador (el camino sin GPU ya está cubierto).
-- Elegir el nombre (`OpenSRT` es provisional, está en `src/lib/i18n.ts`) y desplegar.
