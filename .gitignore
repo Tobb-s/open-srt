@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Clips sueltos para auditorías puntuales: se copian a mano, no se versionan.
 /public/audit/
+
+.vercel
+.env*

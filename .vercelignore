@@ -1,0 +1,21 @@
+# Vercel usa ESTE archivo, no .gitignore. Sin esto intenta subir el corpus entero
+# (192 MB de WAV) y aborta con "File size limit exceeded".
+
+# Fuentes del corpus: 2,4 GB, sólo hacen falta para regenerarlo.
+.corpus-src/
+
+# El audio de medición. El manifiesto SÍ se despliega: documenta qué se midió, y
+# `/bench` es una herramienta interna que no se usa en producción.
+public/corpus/*.wav
+
+# Clips sueltos de auditorías puntuales.
+public/audit/
+
+# Documentación y reportes: viven en el repo, no hacen falta en el servidor.
+docs/
+benchmarks/
+
+# `scripts/` SÍ se sube, aunque no se use en tiempo de ejecución: el test del remuestreo
+# importa `scripts/lib/wav.mjs`, y el build de Next verifica los tipos de todo el
+# proyecto. Excluirlo rompe el build con TS2307. La solución de fondo sería mover el
+# WAV I/O a `src/lib/`, pero el constructor del corpus también lo usa.
