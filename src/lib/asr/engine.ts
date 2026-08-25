@@ -1,0 +1,189 @@
+import { Transcriber, type DownloadProgress, type TranscribeProgress } from './transcriber';
+import { detectCapabilities, selectProfile, type DeviceCapabilities, type Selection } from './capabilities';
+import type { ModelProfile } from './models';
+import type { WorkerRequest, WorkerResponse } from './asr.worker';
+
+/**
+ * La API pública del motor.
+ *
+ * Se encarga de tres cosas que la interfaz no debería tener que saber: elegir el modelo
+ * según lo que aguante el equipo, correr la inferencia fuera del hilo principal, y
+ * seguir funcionando —peor, pero funcionando— cuando el worker no arranca.
+ */
+
+export type EngineMode = 'worker' | 'main-thread';
+
+export interface EngineStatus {
+  mode: EngineMode;
+  profile: ModelProfile;
+  /**
+   * Por qué se cayó al hilo principal, si pasó. La interfaz **tiene que** mostrarlo: en
+   * ese modo la pestaña se congela durante la transcripción, y un usuario que no sabe por
+   * qué la página dejó de responder asume que se rompió.
+   */
+  degradedReason?: string;
+}
+
+export interface TranscribeCallbacks {
+  onProgress?: (p: TranscribeProgress) => void;
+  onDownload?: (p: DownloadProgress) => void;
+}
+
+/** Cuánto esperar a que el worker conteste antes de darlo por muerto. */
+const LOAD_TIMEOUT_MS = 20 * 60 * 1000;
+
+export class AsrEngine {
+  private worker: Worker | null = null;
+  private fallback: Transcriber | null = null;
+  private mode: EngineMode = 'worker';
+  private degradedReason?: string;
+  private profile?: ModelProfile;
+
+  /** Qué puede este equipo y qué modelo le toca. No carga nada todavía. */
+  static async inspect(): Promise<{ caps: DeviceCapabilities; selection: Selection }> {
+    const caps = await detectCapabilities();
+    return { caps, selection: selectProfile(caps) };
+  }
+
+  get status(): EngineStatus | undefined {
+    return this.profile
+      ? { mode: this.mode, profile: this.profile, degradedReason: this.degradedReason }
+      : undefined;
+  }
+
+  async load(profile: ModelProfile, onDownload?: (p: DownloadProgress) => void): Promise<EngineStatus> {
+    this.profile = profile;
+
+    try {
+      this.worker = new Worker(new URL('./asr.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+      await this.request(
+        { type: 'load', hfId: profile.hfId, device: profile.backend, dtype: profile.dtype },
+        LOAD_TIMEOUT_MS,
+        onDownload,
+      );
+      this.mode = 'worker';
+    } catch (err) {
+      // El worker no sirve. Antes de rendirse, se intenta en el hilo principal: es peor
+      // —congela la pestaña— pero es la diferencia entre una herramienta lenta y ninguna.
+      this.worker?.terminate();
+      this.worker = null;
+      this.degradedReason = err instanceof Error ? err.message : String(err);
+      this.mode = 'main-thread';
+
+      this.fallback = new Transcriber();
+      await this.fallback.load({
+        hfId: profile.hfId,
+        device: profile.backend,
+        dtype: profile.dtype,
+        onDownload,
+      });
+    }
+
+    return this.status!;
+  }
+
+  async transcribe(
+    audio: Float32Array,
+    durationSec: number,
+    opts: { language?: string; returnTimestamps?: boolean } & TranscribeCallbacks = {},
+  ): Promise<{ text: string; inferMs: number }> {
+    if (this.mode === 'main-thread') {
+      if (!this.fallback) throw new Error('Motor no cargado');
+      return this.fallback.transcribe({
+        audio,
+        durationSec,
+        language: opts.language,
+        returnTimestamps: opts.returnTimestamps,
+        onProgress: opts.onProgress,
+      });
+    }
+
+    // Copia: el buffer se transfiere al worker y quedaría inutilizable de este lado,
+    // pero quien llamó puede necesitar el audio otra vez (reintento, cambio de idioma).
+    const copy = new Float32Array(audio);
+    // Sin plazo: un archivo largo puede tardar horas legítimamente, y cortar por reloj
+    // mataría trabajo válido. Lo que protege acá es el progreso — si se detiene, el
+    // usuario lo ve y puede cancelar.
+    const res = await this.request(
+      {
+        type: 'transcribe',
+        audio: copy,
+        durationSec,
+        language: opts.language,
+        returnTimestamps: opts.returnTimestamps,
+        withProgress: !!opts.onProgress,
+      },
+      0,
+      undefined,
+      opts.onProgress,
+      [copy.buffer],
+    );
+
+    if (res.type !== 'done') throw new Error('Respuesta inesperada del worker');
+    return { text: res.text, inferMs: res.inferMs };
+  }
+
+  async dispose(): Promise<void> {
+    this.worker?.postMessage({ type: 'dispose' } satisfies WorkerRequest);
+    this.worker?.terminate();
+    this.worker = null;
+    await this.fallback?.dispose();
+    this.fallback = null;
+  }
+
+  /** Un intercambio con el worker, con plazo opcional y reenvío de eventos intermedios. */
+  private request(
+    req: WorkerRequest,
+    timeoutMs: number,
+    onDownload?: (p: DownloadProgress) => void,
+    onProgress?: (p: TranscribeProgress) => void,
+    transfer?: Transferable[],
+  ): Promise<WorkerResponse> {
+    const worker = this.worker;
+    if (!worker) return Promise.reject(new Error('No hay worker'));
+
+    return new Promise((resolve, reject) => {
+      const timer =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              cleanup();
+              reject(new Error(`El worker no respondió en ${Math.round(timeoutMs / 60000)} min`));
+            }, timeoutMs)
+          : undefined;
+
+      const onMessage = (ev: MessageEvent<WorkerResponse>) => {
+        const msg = ev.data;
+        if (msg.type === 'download') {
+          onDownload?.(msg);
+          return; // evento intermedio: no resuelve
+        }
+        if (msg.type === 'progress') {
+          onProgress?.(msg);
+          return;
+        }
+        cleanup();
+        if (msg.type === 'error') reject(new Error(msg.message));
+        else resolve(msg);
+      };
+
+      // Un worker que muere por una caída del proceso de GPU no siempre emite 'error';
+      // por eso el plazo de carga existe además de este manejador.
+      const onError = () => {
+        cleanup();
+        reject(new Error('El worker se cerró de forma inesperada'));
+      };
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+      };
+
+      worker.addEventListener('message', onMessage);
+      worker.addEventListener('error', onError);
+      worker.postMessage(req, transfer ?? []);
+    });
+  }
+}
