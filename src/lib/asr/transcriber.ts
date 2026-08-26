@@ -1,9 +1,11 @@
 import {
+  env,
   pipeline,
   WhisperTextStreamer,
   type AutomaticSpeechRecognitionPipeline,
 } from '@huggingface/transformers';
 import { assertCombinationSafe, type Dtype } from './models';
+import { pinTransformersRuntime } from './runtime';
 import { sliceSamples } from '../vad/silero';
 import { alignBlockText, checkCoverage, type TimedText, type CoverageCheck } from '../vad/align';
 import type { Block } from '../vad/segments';
@@ -174,6 +176,71 @@ export function resolveTimestamps(requested?: boolean): boolean {
   return requested ?? false;
 }
 
+/**
+ * Cómo se le pide una transcripción al modelo.
+ *
+ * El pipeline de transformers.js es invocable; este tipo es esa llamada y nada más.
+ */
+export type ModelCall = (
+  audio: Float32Array,
+  options: Record<string, unknown>,
+) => Promise<unknown>;
+
+/**
+ * El bucle por bloques: recortar, transcribir, repartir el texto entre los tramos.
+ *
+ * **Está afuera de la clase a propósito.** Dentro necesitaría un modelo cargado con el
+ * backend del navegador, y en Node transformers.js sólo acepta `cpu` o `dml`: el test de
+ * alucinación no podría ejercitar este código y tendría que copiarlo. Una copia no sirve —
+ * probaría la copia, no el producto. Con la llamada al modelo como parámetro, el mismo
+ * bucle que corre en el navegador es el que corre en el test.
+ */
+export async function transcribeBlocks(
+  opts: SegmentedOptions,
+  call: ModelCall,
+): Promise<SegmentedResult> {
+  const t0 = performance.now();
+  const salida: TimedText[] = [];
+  let acumulado = '';
+  let speechSec = 0;
+
+  for (const [i, block] of opts.blocks.entries()) {
+    if (opts.signal?.aborted) throw new Error('Cancelado');
+
+    const trozo = sliceSamples(opts.audio, block.startSec, block.endSec);
+
+    // Sin `chunk_length_s`: el bloque ya entra en la ventana del modelo por construcción,
+    // así que fragmentarlo otra vez sólo reintroduciría el problema de pegado. Y sin
+    // timestamps, por lo mismo de siempre.
+    const out = await call(trozo, {
+      language: opts.language,
+      task: 'transcribe',
+      return_timestamps: false,
+    });
+    const texto = ((out as { text?: string }).text ?? '').trim();
+
+    // El detector dice dónde está cada tramo; el modelo, qué se dijo en el bloque.
+    salida.push(...alignBlockText(block.segments, texto));
+    speechSec += block.speechSec;
+    acumulado = acumulado ? `${acumulado} ${texto}` : texto;
+
+    opts.onProgress?.({
+      done: i + 1,
+      total: opts.blocks.length,
+      processedSec: block.endSec,
+      durationSec: opts.durationSec,
+      partialText: acumulado,
+    });
+  }
+
+  return {
+    segments: salida,
+    text: acumulado,
+    inferMs: performance.now() - t0,
+    coverage: checkCoverage(salida, speechSec),
+  };
+}
+
 export class Transcriber {
   private asr: AutomaticSpeechRecognitionPipeline | null = null;
 
@@ -181,6 +248,10 @@ export class Transcriber {
     // Guarda contra las combinaciones que E0 midió rotas. Va en el borde porque el modo
     // de fallo es silencioso: el modelo carga, transcribe y devuelve basura sin avisar.
     assertCombinationSafe(opts.hfId, opts.device, opts.dtype);
+
+    // Antes de `pipeline(...)`, no después: transformers pone su ruta por defecto —jsdelivr—
+    // sólo «si no está ya puesta». Llegar primero es todo el mecanismo.
+    pinTransformersRuntime(env.backends?.onnx);
 
     const t0 = performance.now();
     const load = pipeline as unknown as (
@@ -305,51 +376,7 @@ export class Transcriber {
    */
   async transcribeSegmented(opts: SegmentedOptions): Promise<SegmentedResult> {
     if (!this.asr) throw new Error('Se pidió transcribir sin modelo cargado');
-
-    const t0 = performance.now();
-    const salida: TimedText[] = [];
-    let acumulado = '';
-    let speechSec = 0;
-
-    for (const [i, block] of opts.blocks.entries()) {
-      if (opts.signal?.aborted) throw new Error('Cancelado');
-
-      const trozo = sliceSamples(opts.audio, block.startSec, block.endSec);
-      const call = this.asr as unknown as (
-        audio: Float32Array,
-        options: Record<string, unknown>,
-      ) => Promise<unknown>;
-
-      // Sin `chunk_length_s`: el bloque ya entra en la ventana del modelo por
-      // construcción, así que fragmentarlo otra vez sólo reintroduciría el problema de
-      // pegado. Y sin timestamps, por lo mismo de siempre.
-      const out = await call(trozo, {
-        language: opts.language,
-        task: 'transcribe',
-        return_timestamps: false,
-      });
-      const texto = ((out as { text?: string }).text ?? '').trim();
-
-      // El detector dice dónde está cada tramo; el modelo, qué se dijo en el bloque.
-      salida.push(...alignBlockText(block.segments, texto));
-      speechSec += block.speechSec;
-      acumulado = acumulado ? `${acumulado} ${texto}` : texto;
-
-      opts.onProgress?.({
-        done: i + 1,
-        total: opts.blocks.length,
-        processedSec: block.endSec,
-        durationSec: opts.durationSec,
-        partialText: acumulado,
-      });
-    }
-
-    return {
-      segments: salida,
-      text: acumulado,
-      inferMs: performance.now() - t0,
-      coverage: checkCoverage(salida, speechSec),
-    };
+    return transcribeBlocks(opts, this.asr as unknown as ModelCall);
   }
 
   async dispose(): Promise<void> {

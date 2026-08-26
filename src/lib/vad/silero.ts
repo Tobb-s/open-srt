@@ -1,4 +1,4 @@
-import { env } from '@huggingface/transformers';
+import { ORT_PATH } from '../asr/runtime';
 import { WINDOW_SAMPLES, SAMPLE_RATE, toSegments, DEFAULT_OPTIONS, type Segment, type SegmentOptions } from './segments';
 
 /**
@@ -6,10 +6,15 @@ import { WINDOW_SAMPLES, SAMPLE_RATE, toSegments, DEFAULT_OPTIONS, type Segment,
  *
  * ── Decisiones ──
  *
- * **Reutiliza el onnxruntime que ya trae transformers.js** en vez de cargar el suyo. Son
- * varios megabytes de WebAssembly y dos runtimes compitiendo por los mismos hilos; además,
- * transformers ya dejó configuradas las rutas de los `.wasm`, que es la parte que más
- * cuesta hacer andar por separado.
+ * **Carga onnxruntime-web por su cuenta.** El primer intento fue reutilizar el de
+ * transformers.js leyendo `env.backends.onnx`, y **era una suposición equivocada**: ahí no
+ * está el espacio de nombres de onnxruntime sino su `env` —sólo configuración—, así que
+ * `InferenceSession` era `undefined` y el detector reventaba apenas se lo usaba en el
+ * navegador. Ningún test lo veía: los de integración cargan `onnxruntime-node` directo y no
+ * pasan por esta clase.
+ *
+ * El costo es una segunda instancia del runtime. Los archivos son los mismos —los sirve
+ * `public/ort/` y el navegador los cachea—, así que lo que se paga es memoria, no descarga.
  *
  * **El modelo son 2,2 MB**, contra los 850 MB del de transcripción. Junto a eso no se nota,
  * y es lo que permite que los subtítulos tengan tiempos sin pedírselos al modelo grande
@@ -39,6 +44,8 @@ interface OrtSession {
   release?(): Promise<void>;
 }
 interface Ort {
+  /** Configuración global del runtime. Acá se le dice dónde están sus `.wasm`. */
+  env: { wasm?: { wasmPaths?: string } };
   Tensor: new (
     type: 'float32' | 'int64',
     data: Float32Array | BigInt64Array,
@@ -66,10 +73,10 @@ export class SpeechDetector {
   async load(onDownload?: (loaded: number, total: number) => void): Promise<void> {
     if (this.session) return;
 
-    // La misma instancia que usa transformers, ya con sus rutas de WASM resueltas.
-    const ort =
-      (env.backends?.onnx as unknown as Ort | undefined) ??
-      ((await import('onnxruntime-web')) as unknown as Ort);
+    const ort = (await import('onnxruntime-web')) as unknown as Ort;
+    // Servido por nosotros. Sin esto onnxruntime va a buscar sus `.wasm` a un CDN, que es
+    // código de terceros ejecutándose en la página — y que la CSP bloquea, con razón.
+    if (ort.env?.wasm) ort.env.wasm.wasmPaths = ORT_PATH;
     this.ort = ort;
 
     // Se descarga a mano en vez de dejárselo a onnxruntime para poder informar el avance:

@@ -1,14 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AsrEngine } from '@/lib/asr/engine';
+import { AsrEngine, type TimedPhase } from '@/lib/asr/engine';
 import type { Selection } from '@/lib/asr/capabilities';
 import { rtfMedian, profileByKey, type ModelProfile } from '@/lib/asr/models';
 import { roughEstimateRange } from '@/lib/asr/capabilities';
 import { Estimator, describeEstimate, WINDOW_SEC } from '@/lib/asr/estimate';
 import { learnedRtf, recordRtf, sampleCount } from '@/lib/asr/learned';
 import { decodeToMono16k } from '@/lib/audio/decode';
+import type { TimedText } from '@/lib/vad/align';
+import { SessionStore, newSessionId, type StoredSession } from '@/lib/store/session';
 import { dict, humanDuration, humanRange, type Lang } from '@/lib/i18n';
+import Editor from './Editor';
 
 type Phase =
   | 'checking'
@@ -17,7 +20,7 @@ type Phase =
   | 'ready'
   | 'downloading'
   | 'loading'
-  | 'transcribing'
+  | TimedPhase
   | 'done'
   | 'error';
 
@@ -25,6 +28,19 @@ interface LoadedFile {
   name: string;
   samples: Float32Array;
   durationSec: number;
+  /** El archivo original, para reproducirlo y para guardarlo. */
+  blob: Blob;
+}
+
+/** Lo que se muestra en el editor, venga de transcribir recién o de la base local. */
+interface Sesion {
+  id: string;
+  fileName: string;
+  segments: TimedText[];
+  suspicious: boolean;
+  audioUrl: string | null;
+  editedInitially: ReadonlySet<number>;
+  inferMs: number;
 }
 
 export default function Transcribe({ lang }: { lang: Lang }) {
@@ -36,14 +52,17 @@ export default function Transcribe({ lang }: { lang: Lang }) {
   const [file, setFile] = useState<LoadedFile | null>(null);
   const [downloadPct, setDownloadPct] = useState(0);
   const [processedSec, setProcessedSec] = useState<number | undefined>(undefined);
+  const [blockInfo, setBlockInfo] = useState<{ done: number; total: number } | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [remainingText, setRemainingText] = useState('');
   const [partial, setPartial] = useState('');
-  const [result, setResult] = useState<{ text: string; inferMs: number } | null>(null);
+  const [sesion, setSesion] = useState<Sesion | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [degraded, setDegraded] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Sesión guardada de una visita anterior. No se abre sola: se ofrece.
+  const [pendiente, setPendiente] = useState<StoredSession | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
   // Idioma del audio, que NO es necesariamente el de la interfaz: alguien en /es puede
   // transcribir una reunión en inglés. Por eso es un control aparte.
   //
@@ -61,6 +80,16 @@ export default function Transcribe({ lang }: { lang: Lang }) {
   const engineRef = useRef<AsrEngine | null>(null);
   const estimatorRef = useRef<Estimator | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const storeRef = useRef<SessionStore | null>(null);
+  // Las URL de objeto hay que revocarlas a mano: si no, el audio queda retenido en memoria
+  // por cada archivo que se haya abierto en la sesión.
+  const urlRef = useRef<string | null>(null);
+
+  const ponerAudioUrl = useCallback((blob: Blob | null): string | null => {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+    urlRef.current = blob ? URL.createObjectURL(blob) : null;
+    return urlRef.current;
+  }, []);
 
   // Detectar capacidades apenas carga: el usuario tiene que saber qué va a pasar
   // *antes* de elegir un archivo, no después.
@@ -79,8 +108,24 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       setProfile(forzado ?? sel.profile);
       setPhase('idle');
     });
+
+    // La persistencia es un extra: si el navegador no da IndexedDB —modo privado, permisos
+    // restringidos— la herramienta tiene que seguir transcribiendo igual.
+    void SessionStore.open()
+      .then(async (s) => {
+        if (!alive) {
+          s.close();
+          return;
+        }
+        storeRef.current = s;
+        setPendiente(await s.latest());
+      })
+      .catch(() => {});
+
     return () => {
       alive = false;
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      storeRef.current?.close();
       void engineRef.current?.dispose();
     };
   }, []);
@@ -88,14 +133,15 @@ export default function Transcribe({ lang }: { lang: Lang }) {
   const onFile = useCallback(
     async (f: File) => {
       setError(null);
-      setResult(null);
+      setSesion(null);
       setPartial('');
       setProcessedSec(undefined);
+      setBlockInfo(null);
       setPhase('decoding');
       try {
         const bytes = await f.arrayBuffer();
         const audio = await decodeToMono16k(bytes);
-        setFile({ name: f.name, samples: audio.samples, durationSec: audio.durationSec });
+        setFile({ name: f.name, samples: audio.samples, durationSec: audio.durationSec, blob: f });
         setPhase('ready');
       } catch {
         setError(t.errors.decode);
@@ -110,7 +156,9 @@ export default function Transcribe({ lang }: { lang: Lang }) {
     setError(null);
     setPartial('');
     setProcessedSec(undefined);
+    setBlockInfo(null);
     setElapsedSec(0);
+    setPendiente(null);
 
     // El RTF que este equipo ya demostró vale más que el de la tabla, aunque venga de
     // otro archivo: al menos se midió acá.
@@ -134,7 +182,6 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         if (status.mode === 'main-thread') setDegraded(t.errors.degraded);
       }
 
-      setPhase('transcribing');
       // El reloj arranca acá, no en un efecto: si se leyera de una variable capturada en
       // el render, el callback usaría el valor de cuando se creó y la calibración mediría
       // contra un instante equivocado.
@@ -142,20 +189,23 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       estimator.start();
       let calibrated = false;
 
-      const out = await engine.transcribe(file.samples, file.durationSec, {
+      const out = await engine.transcribeTimed(file.samples, file.durationSec, {
         language: audioLang === 'auto' ? undefined : audioLang,
-        onProgress: (p) => {
+        onPhase: (p) => {
+          setPhase(p);
+          // El detector y el modelo miden segundos distintos; arrancar de cero al pasar de
+          // uno al otro evita que la barra retroceda.
+          if (p === 'transcribing') setProcessedSec(0);
+        },
+        onDownload: (p) => setDownloadPct(Math.round((p.loaded / p.total) * 100)),
+        onDetectProgress: (p) => setProcessedSec(p.processedSec),
+        onBlockProgress: (p) => {
           setPartial(p.partialText);
-
-          // Sin timestamps —el caso por defecto— no se sabe en qué segundo va el modelo.
-          // La estimación se queda con el RTF aprendido y el avance visible es el texto,
-          // que es prueba real: si el modelo se traba, el texto se detiene.
-          if (p.processedSec === undefined) {
-            setRemainingText(describeEstimate(estimator.estimate(file.durationSec)));
-            return;
-          }
-
           setProcessedSec(p.processedSec);
+          setBlockInfo({ done: p.done, total: p.total });
+
+          // Con bloques el avance es exacto —terminados sobre totales—, así que la
+          // estimación deja de ser una extrapolación a ciegas y se calibra con lo medido.
           if (!calibrated && p.processedSec >= WINDOW_SEC) {
             estimator.calibrate(performance.now() - startedAt, p.processedSec);
             calibrated = true;
@@ -170,54 +220,147 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       // estimación del próximo archivo, que ya no va a ser prestada.
       recordRtf(profile.key, out.inferMs / 1000 / file.durationSec, file.durationSec);
 
-      setResult(out);
+      const id = newSessionId();
+      // Tres estados, no dos: guardado con audio, guardado sin audio, y **no guardado**
+      // —el navegador no dio IndexedDB—. Decir «el audio no entró» cuando no se guardó nada
+      // sería mentir sobre lo que pasó.
+      let aviso: string | null = null;
+      try {
+        const guardada = await storeRef.current?.save(
+          {
+            id,
+            fileName: file.name,
+            durationSec: file.durationSec,
+            createdAt: Date.now(),
+            speechSec: out.speechSec,
+            inferMs: out.inferMs,
+            suspicious: out.coverage.suspicious,
+          },
+          out.segments,
+          file.blob,
+        );
+        if (guardada) aviso = guardada.audioStored ? t.store.kept : t.store.audioTooBig;
+      } catch {
+        // Que no se pueda guardar no invalida la transcripción: se muestra igual, sin
+        // prometer que quedó en ningún lado.
+        aviso = null;
+      }
+
+      setSesion({
+        id,
+        fileName: file.name,
+        segments: out.segments,
+        suspicious: out.coverage.suspicious,
+        // El audio para reproducir sale del archivo que el usuario acaba de abrir, esté o
+        // no guardado: no hay razón para no poder escucharlo ahora.
+        audioUrl: ponerAudioUrl(file.blob),
+        editedInitially: new Set(),
+        inferMs: out.inferMs,
+      });
+      setAviso(aviso);
       setPhase('done');
     } catch (err) {
       setError(err instanceof Error ? err.message : t.errors.generic);
       setPhase('error');
     }
-  }, [file, profile, t, audioLang]);
+  }, [file, profile, t, audioLang, ponerAudioUrl]);
+
+  /**
+   * Una corrección: se aplica en pantalla y se escribe en la base.
+   *
+   * La escritura toca un solo registro. Si el audio y el texto vivieran juntos, corregir
+   * una coma reescribiría el archivo entero.
+   */
+  // Depende del **id** de la sesión, no de la sesión entera: así no se rehace con cada
+  // corrección, sólo al cambiar de transcripción.
+  const sesionId = sesion?.id;
+  const onEdit = useCallback(
+    (index: number, text: string) => {
+      // La escritura va **afuera** del actualizador de estado: React puede llamar al
+      // actualizador dos veces en desarrollo, y un efecto adentro correría dos veces.
+      if (sesionId) void storeRef.current?.updateSegment(sesionId, index, text).catch(() => {});
+      setSesion((prev) =>
+        prev
+          ? { ...prev, segments: prev.segments.map((s, i) => (i === index ? { ...s, text } : s)) }
+          : prev,
+      );
+    },
+    [sesionId],
+  );
+
+  const restaurar = useCallback(async () => {
+    const s = storeRef.current;
+    if (!s || !pendiente) return;
+    const cargada = await s.load(pendiente.id);
+    if (!cargada) return;
+    setSesion({
+      id: cargada.session.id,
+      fileName: cargada.session.fileName,
+      segments: cargada.segments.map((x) => ({
+        startSec: x.startSec,
+        endSec: x.endSec,
+        text: x.text,
+      })),
+      suspicious: cargada.session.suspicious,
+      audioUrl: ponerAudioUrl(cargada.audio),
+      editedInitially: new Set(cargada.segments.filter((x) => x.edited).map((x) => x.index)),
+      inferMs: cargada.session.inferMs,
+    });
+    setPendiente(null);
+    setFile(null);
+    setAviso(cargada.session.audioStored ? t.store.kept : t.store.audioTooBig);
+    setPhase('done');
+  }, [pendiente, ponerAudioUrl, t]);
+
+  const borrarTodo = useCallback(async () => {
+    await storeRef.current?.clear();
+    setPendiente(null);
+    setAviso(t.store.cleared);
+  }, [t]);
 
   // Reloj de pared. Sin barra de porcentaje, es la referencia de que el tiempo corre.
   useEffect(() => {
-    if (phase !== 'transcribing') return;
+    if (phase !== 'transcribing' && phase !== 'detecting') return;
     const t0 = performance.now();
     const id = setInterval(() => setElapsedSec((performance.now() - t0) / 1000), 1000);
     return () => clearInterval(id);
   }, [phase]);
 
-  const copy = useCallback(async () => {
-    if (!result) return;
-    await navigator.clipboard.writeText(result.text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [result]);
-
-  const download = useCallback(() => {
-    if (!result || !file) return;
-    const blob = new Blob([result.text], { type: 'text/plain;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${file.name.replace(/\.[^.]+$/, '')}.txt`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }, [result, file]);
-
   const reset = useCallback(() => {
+    ponerAudioUrl(null);
     setFile(null);
-    setResult(null);
+    setSesion(null);
     setPartial('');
     setError(null);
+    setAviso(null);
     setPhase('idle');
-  }, []);
+    void storeRef.current?.latest().then(setPendiente);
+  }, [ponerAudioUrl]);
 
-  const busy = phase === 'downloading' || phase === 'loading' || phase === 'transcribing';
-  // Sólo hay porcentaje si el modelo informó en qué segundo va. Sin eso NO se dibuja una
-  // barra: fingir una medición es exactamente lo que esta herramienta no hace.
+  const busy =
+    phase === 'downloading' ||
+    phase === 'loading' ||
+    phase === 'detector' ||
+    phase === 'detecting' ||
+    phase === 'transcribing';
+
+  // Sólo hay porcentaje si hay un avance medido. Sin eso NO se dibuja una barra: fingir
+  // una medición es exactamente lo que esta herramienta no hace.
   const pct =
     processedSec !== undefined && file && file.durationSec > 0
       ? Math.min(100, (processedSec / file.durationSec) * 100)
       : undefined;
+
+  const tituloFase =
+    phase === 'downloading'
+      ? t.run.downloading(downloadPct)
+      : phase === 'loading'
+        ? t.run.loading
+        : phase === 'detector'
+          ? t.detect.loading
+          : phase === 'detecting'
+            ? t.detect.running
+            : t.run.transcribing;
 
   return (
     <div className="space-y-8">
@@ -266,8 +409,27 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         ) : null}
       </section>
 
+      {/* Una transcripción de una visita anterior. Se ofrece, no se impone. */}
+      {pendiente && !sesion && !busy && (
+        <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm dark:border-blue-900 dark:bg-blue-950/30">
+          <p className="flex-1">{t.store.restored(pendiente.fileName)}</p>
+          <button
+            onClick={() => void restaurar()}
+            className="rounded-full bg-blue-600 px-4 py-1.5 font-medium text-white"
+          >
+            {t.store.open}
+          </button>
+          <button
+            onClick={() => void borrarTodo()}
+            className="rounded-full px-3 py-1.5 text-neutral-600 underline underline-offset-2 dark:text-neutral-400"
+          >
+            {t.store.discard}
+          </button>
+        </section>
+      )}
+
       {/* Zona de archivo */}
-      {!file && phase !== 'decoding' && (
+      {!file && !sesion && phase !== 'decoding' && (
         <section
           onDragOver={(e) => {
             e.preventDefault();
@@ -382,15 +544,9 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       {/* Progreso real */}
       {busy && file && (
         <section className="space-y-3 rounded-2xl border border-neutral-200 p-5 dark:border-neutral-800">
-          <p className="font-medium">
-            {phase === 'downloading'
-              ? t.run.downloading(downloadPct)
-              : phase === 'loading'
-                ? t.run.loading
-                : t.run.transcribing}
-          </p>
+          <p className="font-medium">{tituloFase}</p>
 
-          {phase === 'transcribing' && (
+          {(phase === 'detecting' || phase === 'transcribing') && (
             <>
               {pct !== undefined ? (
                 <>
@@ -405,19 +561,20 @@ export default function Transcribe({ lang }: { lang: Lang }) {
                       humanDuration(processedSec!, lang),
                       humanDuration(file.durationSec, lang),
                     )}
+                    {/* Con bloques el avance no se estima: se cuenta. */}
+                    {blockInfo && ` · ${t.run.blocks(blockInfo.done, blockInfo.total)}`}
                     {remainingText && ` · ${t.run.remaining(remainingText)}`}
                   </p>
                 </>
               ) : (
                 <p className="text-sm text-neutral-500">
                   {t.run.elapsed(humanDuration(elapsedSec, lang))}
-                  {remainingText && ` · ${t.run.remaining(remainingText)}`}
                 </p>
               )}
             </>
           )}
 
-          {phase === 'downloading' && (
+          {(phase === 'downloading' || phase === 'detector') && (
             <div className="h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
               <div
                 className="h-full bg-neutral-500 transition-[width]"
@@ -441,44 +598,36 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       )}
 
       {/* Resultado */}
-      {phase === 'done' && result && (
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-lg font-medium">{t.result.title}</h2>
-            <span className="text-sm text-neutral-500">
-              {t.result.words(result.text ? result.text.trim().split(/\s+/).length : 0)}
-              {' · '}
-              {t.result.tookLabel(humanDuration(result.inferMs / 1000, lang))}
-            </span>
-          </div>
-
-          {result.text ? (
-            <>
-              <p className="whitespace-pre-wrap rounded-2xl border border-neutral-200 p-5 leading-relaxed dark:border-neutral-800">
-                {result.text}
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={copy}
-                  className="rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
-                >
-                  {copied ? t.result.copied : t.result.copy}
-                </button>
-                <button
-                  onClick={download}
-                  className="rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
-                >
-                  {t.result.download}
-                </button>
-                <button onClick={reset} className="rounded-full px-4 py-2 text-neutral-500">
-                  {t.result.newFile}
-                </button>
-              </div>
-            </>
+      {phase === 'done' && sesion && (
+        <div className="space-y-4">
+          {sesion.segments.some((s) => s.text.trim()) ? (
+            <Editor
+              key={sesion.id}
+              lang={lang}
+              segments={sesion.segments}
+              suspicious={sesion.suspicious}
+              audioUrl={sesion.audioUrl}
+              fileName={sesion.fileName}
+              editedInitially={sesion.editedInitially}
+              onEdit={onEdit}
+            />
           ) : (
             <p className="text-neutral-500">{t.result.empty}</p>
           )}
-        </section>
+
+          <div className="flex flex-wrap items-center gap-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+            <button onClick={reset} className="rounded-full px-4 py-2 text-neutral-500">
+              {t.result.newFile}
+            </button>
+            <button
+              onClick={() => void borrarTodo()}
+              className="rounded-full px-4 py-2 text-sm text-neutral-500 underline underline-offset-2"
+            >
+              {t.store.clear}
+            </button>
+          </div>
+          {aviso && <p className="text-xs text-neutral-500">{aviso}</p>}
+        </div>
       )}
 
       {error && (

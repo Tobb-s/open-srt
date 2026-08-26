@@ -53,3 +53,7 @@ next-env.d.ts
 
 # Modelo del detector de voz: se descarga con `npm run vad:fetch`, no se versiona.
 /.vad-tmp/
+
+# El runtime de ONNX se copia desde node_modules antes de cada build (`prebuild`).
+# 31 MB que no tiene sentido versionar: salen del paquete instalado, no de acá.
+/public/ort/

@@ -19,3 +19,7 @@ benchmarks/
 # importa `scripts/lib/wav.mjs`, y el build de Next verifica los tipos de todo el
 # proyecto. Excluirlo rompe el build con TS2307. La solución de fondo sería mover el
 # WAV I/O a `src/lib/`, pero el constructor del corpus también lo usa.
+
+# El detector y el audio de 30 min del test de desfase: 57 MB que no son producto.
+# Vercel usa este archivo, NO .gitignore, así que sin esta línea se suben igual.
+.vad-tmp/

@@ -57,10 +57,37 @@ export interface Dict {
     transcribing: string;
     remaining: (human: string) => string;
     processed: (done: string, total: string) => string;
+    /** Avance por bloques: es exacto, a diferencia de la estimación por RTF. */
+    blocks: (done: number, total: number) => string;
     elapsed: (human: string) => string;
     liveHint: string;
     cancel: string;
     calibrating: string;
+  };
+  detect: {
+    loading: string;
+    running: string;
+    found: (n: number, habla: string) => string;
+  };
+  store: {
+    /** Que el audio quedó en el disco de esta máquina hay que decirlo, no dejarlo pasar. */
+    kept: string;
+    clear: string;
+    cleared: string;
+    restored: (file: string) => string;
+    open: string;
+    discard: string;
+    audioTooBig: string;
+  };
+  omission: {
+    title: string;
+    body: string;
+  };
+  editor: {
+    hint: string;
+    edited: string;
+    downloadSrt: string;
+    downloadVtt: string;
   };
   result: {
     title: string;
@@ -107,7 +134,8 @@ const es: Dict = {
     detail:
       'Decir «nada sale de tu equipo» sería falso: el audio no se sube, pero el modelo hay ' +
       'que bajarlo. Son unos cientos de megas y queda en la caché del navegador, así que la ' +
-      'segunda vez es inmediata.',
+      'segunda vez es inmediata. Todo lo demás —incluido el motor que lo ejecuta— se sirve ' +
+      'desde este sitio, no desde un CDN de terceros.',
   },
   device: {
     checking: 'Viendo qué puede tu equipo…',
@@ -131,8 +159,8 @@ const es: Dict = {
         ? 'según lo que tardó tu equipo la vez anterior'
         : `según lo que tardó tu equipo las ${n} veces anteriores`,
     tooLong:
-      'Es un archivo largo. Podés cerrar la pestaña y volver, pero la transcripción se ' +
-      'pierde: guardar el avance llega en una etapa próxima.',
+      'Es un archivo largo. Si cerrás la pestaña mientras transcribe, se pierde y hay que ' +
+      'empezar de nuevo: lo que se guarda es el resultado terminado, no el avance.',
     audioLang: 'Idioma del audio',
     audioLangAuto: 'Detectar',
     audioLangEs: 'Español',
@@ -152,10 +180,42 @@ const es: Dict = {
     transcribing: 'Transcribiendo…',
     remaining: (human) => `Falta ${human}`,
     processed: (done, total) => `${done} de ${total}`,
+    blocks: (done, total) => `Bloque ${done} de ${total}`,
     elapsed: (human) => `Llevás ${human}`,
     liveHint: 'El texto va apareciendo a medida que se transcribe.',
     cancel: 'Cancelar',
     calibrating: 'Midiendo la velocidad de tu equipo…',
+  },
+  detect: {
+    loading: 'Preparando el detector de voz…',
+    running: 'Buscando dónde hay voz…',
+    found: (n, habla) => `${n} tramos de voz · ${habla} de habla`,
+  },
+  store: {
+    kept:
+      'Esta transcripción y su audio quedan guardados en este navegador para que puedas ' +
+      'volver a abrirlos. Siguen en tu máquina: nunca se suben a ningún lado.',
+    clear: 'Borrar lo guardado',
+    cleared: 'Se borró todo lo guardado en este navegador.',
+    restored: (file) => `Se recuperó tu última transcripción: ${file}`,
+    open: 'Abrir',
+    discard: 'Descartar',
+    audioTooBig:
+      'El texto quedó guardado, pero el audio no entró en el espacio que da el navegador. ' +
+      'Al volver vas a ver la transcripción sin el reproductor.',
+  },
+  omission: {
+    title: 'Puede faltar contenido',
+    body:
+      'Se detectó bastante más voz de la que corresponde al texto obtenido. El modelo a ' +
+      'veces se saltea un tramo entero sin avisar, y lo que devuelve suena natural igual. ' +
+      'Conviene comparar con el audio antes de darla por buena.',
+  },
+  editor: {
+    hint: 'Hacé clic en una línea para escuchar esa parte. El texto se puede corregir.',
+    edited: 'editado',
+    downloadSrt: 'Descargar .srt',
+    downloadVtt: 'Descargar .vtt',
   },
   result: {
     title: 'Transcripción',
@@ -179,7 +239,7 @@ const es: Dict = {
       'pestaña. **La página va a quedar congelada mientras trabaja** — no está trabada.',
   },
   footer: {
-    stage: 'Etapa 1: audio a texto. Subtítulos, video y hablantes vienen después.',
+    stage: 'Etapa 2: audio a texto con tiempos y subtítulos. Video y hablantes vienen después.',
     source: 'Código abierto',
   },
 };
@@ -210,7 +270,8 @@ const en: Dict = {
     detail:
       'Saying "nothing leaves your machine" would be false: the audio is not uploaded, but ' +
       'the model has to come down. It is a few hundred megabytes and it stays in the ' +
-      'browser cache, so the second time is instant.',
+      'browser cache, so the second time is instant. Everything else — including the engine ' +
+      'that runs it — is served from this site, not from a third-party CDN.',
   },
   device: {
     checking: 'Checking what your machine can do…',
@@ -234,8 +295,8 @@ const en: Dict = {
         ? 'based on how long your machine took last time'
         : `based on how long your machine took the last ${n} times`,
     tooLong:
-      'This is a long file. You can close the tab and come back, but the transcription is ' +
-      'lost: saving progress arrives in a later stage.',
+      'This is a long file. Closing the tab mid-run loses it and you have to start over: ' +
+      'what gets saved is the finished transcript, not the progress.',
     audioLang: 'Audio language',
     audioLangAuto: 'Detect',
     audioLangEs: 'Spanish',
@@ -255,10 +316,42 @@ const en: Dict = {
     transcribing: 'Transcribing…',
     remaining: (human) => `${human} left`,
     processed: (done, total) => `${done} of ${total}`,
+    blocks: (done, total) => `Block ${done} of ${total}`,
     elapsed: (human) => `${human} elapsed`,
     liveHint: 'Text appears as it is transcribed.',
     cancel: 'Cancel',
     calibrating: 'Measuring your machine’s speed…',
+  },
+  detect: {
+    loading: 'Getting the speech detector ready…',
+    running: 'Finding where the speech is…',
+    found: (n, habla) => `${n} speech segments · ${habla} of speech`,
+  },
+  store: {
+    kept:
+      'This transcript and its audio are kept in this browser so you can reopen them. ' +
+      'They stay on your machine: they are never uploaded anywhere.',
+    clear: 'Delete what is stored',
+    cleared: 'Everything stored in this browser was deleted.',
+    restored: (file) => `Recovered your last transcript: ${file}`,
+    open: 'Open',
+    discard: 'Discard',
+    audioTooBig:
+      'The text was saved, but the audio did not fit in the space the browser allows. ' +
+      'When you come back you will see the transcript without the player.',
+  },
+  omission: {
+    title: 'Content may be missing',
+    body:
+      'Considerably more speech was detected than the resulting text accounts for. The ' +
+      'model sometimes skips a whole stretch without warning, and what it returns still ' +
+      'sounds natural. Worth checking against the audio before trusting it.',
+  },
+  editor: {
+    hint: 'Click a line to hear that part. The text can be corrected.',
+    edited: 'edited',
+    downloadSrt: 'Download .srt',
+    downloadVtt: 'Download .vtt',
   },
   result: {
     title: 'Transcript',
@@ -281,7 +374,7 @@ const en: Dict = {
       'will freeze while it works** — it is not stuck.',
   },
   footer: {
-    stage: 'Stage 1: audio to text. Subtitles, video and speakers come later.',
+    stage: 'Stage 2: audio to text with timings and subtitles. Video and speakers come later.',
     source: 'Open source',
   },
 };

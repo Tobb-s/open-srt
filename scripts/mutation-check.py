@@ -33,6 +33,8 @@ ALIGN = ROOT / "src" / "lib" / "vad" / "align.ts"
 SUBS = ROOT / "src" / "lib" / "export" / "subtitles.ts"
 WAV = ROOT / "scripts" / "lib" / "wav.mjs"
 ENGINE = ROOT / "src" / "lib" / "asr" / "engine.ts"
+STORE = ROOT / "src" / "lib" / "store" / "session.ts"
+RUNTIME = ROOT / "src" / "lib" / "asr" / "runtime.ts"
 
 # (nombre, archivo, texto original, texto mutado, qué debería atrapar)
 MUTANTS = [
@@ -304,6 +306,107 @@ MUTANTS = [
         "    else if (actual.length + 1 + w.length <= maxChars) actual += ` ${w}`;",
         "    else if (true) actual += ` ${w}`;",
         "todo iria en una sola linea larguisima",
+    ),
+    # ---- persistencia (E2) ----
+    (
+        "los tramos se leen en orden inverso",
+        STORE,
+        "segments.sort((a, b) => a.index - b.index);",
+        "segments.sort((a, b) => b.index - a.index);",
+        "el texto dejaria de corresponderse con el audio",
+    ),
+    (
+        "el rango de tramos de una sesion se corta en el indice 0",
+        STORE,
+        "return IDBKeyRange.bound([sessionId, -Infinity], [sessionId, Infinity]);",
+        "return IDBKeyRange.bound([sessionId, -Infinity], [sessionId, 0]);",
+        "al recargar volveria un solo tramo",
+    ),
+    (
+        "una correccion no queda marcada como editada",
+        STORE,
+        "store.put({ ...actual, text, edited: true });",
+        "store.put({ ...actual, text, edited: false });",
+        "no se distinguiria lo corregido a mano de lo automatico",
+    ),
+    (
+        "corregir un tramo inexistente no falla",
+        STORE,
+        "    if (!actual) {",
+        "    if (false) {",
+        "un indice fuera de rango escribiria basura en vez de avisar",
+    ),
+    (
+        "el tope de sesiones se corre uno",
+        STORE,
+        "for (const vieja of todas.slice(MAX_SESSIONS)) {",
+        "for (const vieja of todas.slice(MAX_SESSIONS + 1)) {",
+        "quedaria una sesion de mas guardada",
+    ),
+    (
+        "borrar una sesion deja sus tramos huerfanos",
+        STORE,
+        "    tx.objectStore('segments').delete(segmentRange(sessionId));",
+        "    void segmentRange(sessionId);",
+        "el tope no liberaria espacio y la cuota se llenaria igual",
+    ),
+    (
+        "el audio guardado nunca se declara como guardado",
+        STORE,
+        "        session.audioStored = true;",
+        "        session.audioStored = false;",
+        "al recargar no se podria escuchar el audio que si esta",
+    ),
+    (
+        "un fallo de cuota del audio se lleva puesta la transcripcion",
+        STORE,
+        "      } catch {\n        // Cuota llena, típicamente. Queda `audioStored: false` y la interfaz lo dice.\n      }",
+        "      } catch (e) {\n        throw e;\n      }",
+        "el texto se perderia por no poder guardar el audio",
+    ),
+    # ---- runtime de ONNX servido por nosotros ----
+    (
+        "la ruta del runtime vuelve a apuntar al CDN",
+        RUNTIME,
+        "export const ORT_PATH = '/ort/';",
+        "export const ORT_PATH = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6/dist/';",
+        "la CSP volveria a bloquear la carga del modelo",
+    ),
+    (
+        "fijar la ruta del runtime deja de hacer efecto",
+        RUNTIME,
+        "  if (env?.wasm) env.wasm.wasmPaths = ORT_PATH;",
+        "  if (false) env.wasm.wasmPaths = ORT_PATH;",
+        "transformers volveria a su default de jsdelivr",
+    ),
+    (
+        "la ruta del runtime pierde la barra final",
+        RUNTIME,
+        "export const ORT_PATH = '/ort/';",
+        "export const ORT_PATH = '/ort';",
+        "onnxruntime pediria /ortort-wasm-... y daria 404",
+    ),
+    # ---- tiempo y alucinacion (E2) ----
+    (
+        "el reloj del detector corre un 0,02 % rapido",
+        SEGS,
+        "  const msPerWindow = WINDOW_MS;",
+        "  const msPerWindow = WINDOW_MS * 1.0002;",
+        "desfase acumulado: 0,36 s al final de un archivo de 30 minutos",
+    ),
+    (
+        "los bloques no se recortan: el modelo recibe el archivo entero",
+        TRANS,
+        "    const trozo = sliceSamples(opts.audio, block.startSec, block.endSec);",
+        "    const trozo = opts.audio;",
+        "vuelven las alucinaciones en los tramos sin voz",
+    ),
+    (
+        "el aviso de omision nunca se enciende",
+        ALIGN,
+        "    suspicious: speechSec > 10 && wps < MIN_WORDS_PER_SPEECH_SEC,",
+        "    suspicious: false,",
+        "el modelo se saltea un tramo y nadie avisa",
     ),
 ]
 

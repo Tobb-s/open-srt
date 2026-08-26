@@ -10,21 +10,31 @@ open-latex-ai: el trabajo ocurre en tu equipo, no en el de otro.
 
 ## Qué hace hoy
 
-Toma un archivo de audio y devuelve su texto. Nada más — y eso es a propósito: es la
-primera etapa de un plan de seis, y cada una se cierra con mediciones antes de pasar a la
-siguiente.
+Toma un archivo de audio y devuelve su texto **con marcas de tiempo**, listo para corregir
+y para exportar como subtítulos. Es la segunda etapa de un plan de seis, y cada una se
+cierra con mediciones antes de pasar a la siguiente.
 
 - **El audio nunca sale de tu computadora.** Lo que sí entra es el modelo: unos cientos de
   megabytes que se descargan una vez desde Hugging Face y quedan en la caché del navegador.
-  Decir «nada sale de tu equipo» a secas sería falso, así que la interfaz lo aclara.
+  Decir «nada sale de tu equipo» a secas sería falso, así que la interfaz lo aclara. Todo lo
+  demás —incluido el motor de ONNX que ejecuta el modelo— se sirve desde el propio sitio, no
+  desde un CDN de terceros.
+- **Subtítulos con tiempos reales**: `.srt` y `.vtt`, con las convenciones que hacen que se
+  lean bien (42 caracteres por línea, dos líneas, velocidad de lectura). Comprobado en VLC.
+- **Editor sincronizado**: hacés clic en el tiempo de una línea y el audio salta ahí; el
+  texto se corrige en el lugar.
+- **Queda guardado en tu navegador.** Cerrás la pestaña, volvés, y la transcripción y tus
+  correcciones siguen ahí. En tu máquina, y con un botón para borrarlo.
+- **Avisa cuando puede faltar contenido.** Un detector de voz mide cuánto se habló; si el
+  texto no da cuenta de ese tiempo, lo dice.
 - **Bilingüe por URL**: `/es` y `/en`.
 - **Dice cuánto va a tardar** *antes* de empezar, y aprende del propio uso: la primera
   estimación viene de una tabla y lo declara; a partir de la segunda transcripción usa lo
   que tardó en tu equipo.
 - **Elige el modelo según lo que aguanta tu equipo**, y si va a ser peor, lo dice.
 
-Lo que **todavía no** hace: subtítulos con marcas de tiempo, video, separar hablantes,
-traducción ni resúmenes. Están planificados en `docs/ETAPAS.md`.
+Lo que **todavía no** hace: video, separar hablantes, traducción ni resúmenes. Están
+planificados en `docs/ETAPAS.md`.
 
 ## Qué tan bueno es
 
@@ -48,8 +58,14 @@ del texto faltante. Lo que devuelve es fluido y plausible, así que el faltante 
 sin tener el original al lado.
 
 No es un defecto de esta herramienta sino del modelo, pero **te afecta igual**: revisá las
-transcripciones importantes. La etapa 2 incorpora detección de voz, que permite avisar
-cuando el texto producido no se corresponde con el habla detectada.
+transcripciones importantes.
+
+La etapa 2 no lo resuelve —no se puede desde afuera del modelo— pero hace dos cosas al
+respecto. Detecta cuánta voz hay y **avisa** cuando el texto no da cuenta de ese tiempo. Y
+recorta el audio a los tramos con voz antes de dárselo al modelo, lo que elimina las
+invenciones en el silencio: medido sobre audio construido, **cero inserciones con el
+detector contra dos por archivo sin él** — el modelo escribía `[Música]` donde no hablaba
+nadie. Los números están en `docs/E2-ESTADO.md`.
 
 ## Correrlo
 
@@ -64,11 +80,16 @@ funciona igual, con un modelo más chico.
 ## Desarrollo
 
 ```bash
-npm test             # 179 tests
+npm test             # 293 tests
 npm run mutation     # rompe el código a propósito y confirma que los tests lo atrapan
 npm run corpus:build # regenera el corpus de medición desde OpenSLR
 npm run corpus:verify
+npm run drift:build  # arma el audio de 30 min del test de desfase
 ```
+
+Algunos tests de integración necesitan artefactos locales y se saltean sin ellos: el corpus
+(`corpus:build`), el detector de voz (`vad:fetch`), el audio de desfase (`drift:build`) y
+VLC instalado. El resto corre en cualquier lado.
 
 El banco de medición vive en `/bench` y no forma parte del producto: es la herramienta con
 la que se eligió el modelo. `docs/` tiene el plan por etapas y el registro de cada decisión

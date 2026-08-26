@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // El runtime de ONNX no es código nuestro: lo copia `scripts/vendor-ort.mjs` desde
+    // node_modules y se sirve tal cual. Revisarlo con nuestras reglas no dice nada.
+    "public/ort/**",
   ]),
 ]);
 
