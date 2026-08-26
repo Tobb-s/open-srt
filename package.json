@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "mutation": "python scripts/mutation-check.py",
     "corpus:build": "node scripts/build-corpus.mjs",
-    "corpus:verify": "node scripts/verify-corpus.mjs"
+    "corpus:verify": "node scripts/verify-corpus.mjs",
+    "vad:fetch": "node -e \"const fs=require('fs');fs.mkdirSync('.vad-tmp',{recursive:true});fetch('https://huggingface.co/onnx-community/silero-vad/resolve/main/onnx/model.onnx').then(r=>r.arrayBuffer()).then(b=>{fs.writeFileSync('.vad-tmp/silero_vad.onnx',Buffer.from(b));console.log('ok',(b.byteLength/1024).toFixed(0),'KB')})\""
   },
   "dependencies": {
     "@huggingface/transformers": "3.7.6",

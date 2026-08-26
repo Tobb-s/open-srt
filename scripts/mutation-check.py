@@ -28,6 +28,8 @@ EST = ROOT / "src" / "lib" / "asr" / "estimate.ts"
 LEARN = ROOT / "src" / "lib" / "asr" / "learned.ts"
 TRANS = ROOT / "src" / "lib" / "asr" / "transcriber.ts"
 I18N = ROOT / "src" / "lib" / "i18n.ts"
+SEGS = ROOT / "src" / "lib" / "vad" / "segments.ts"
+ALIGN = ROOT / "src" / "lib" / "vad" / "align.ts"
 WAV = ROOT / "scripts" / "lib" / "wav.mjs"
 ENGINE = ROOT / "src" / "lib" / "asr" / "engine.ts"
 
@@ -229,6 +231,42 @@ MUTANTS = [
         "      this.degradedReason = err instanceof Error ? err.message : String(err);",
         "      this.degradedReason = undefined;",
         "la pestaña se congelaría sin que la interfaz pueda explicar por qué",
+    ),
+    # ── vad/ : el detector de voz de E2 ─────────────────────────────────────
+    (
+        "no se fusionan los silencios cortos",
+        SEGS,
+        "if (ultimo && (s.startSec - ultimo.endSec) * 1000 < opts.minSilenceMs) {",
+        "if (false) {",
+        "cada pausa entre palabras partiria el subtitulo",
+    ),
+    (
+        "los tramos breves se descartan sobre la lista sin fusionar",
+        SEGS,
+        "  const filtrados = fusionados.filter(",
+        "  const filtrados = bruto.filter(",
+        "tres fragmentos cortos seguidos se perderian en vez de unirse",
+    ),
+    (
+        "el bloque se cierra despues de agregar, no antes",
+        SEGS,
+        "    if (actual.length && s.endSec - inicio > maxSec) cerrar();",
+        "    if (false) cerrar();",
+        "los bloques crecerian sin limite y excederian la ventana del modelo",
+    ),
+    (
+        "el ultimo tramo no recibe las palabras sobrantes",
+        ALIGN,
+        "      ? ws.length - usadas",
+        "      ? 1",
+        "el final de cada bloque se perderia",
+    ),
+    (
+        "la comprobacion de omision nunca sospecha",
+        ALIGN,
+        "    suspicious: speechSec > 10 && wps < MIN_WORDS_PER_SPEECH_SEC,",
+        "    suspicious: false,",
+        "vuelve la omision silenciosa que E1 midio en 3 de 23 archivos",
     ),
 ]
 

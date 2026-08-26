@@ -50,3 +50,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# Modelo del detector de voz: se descarga con `npm run vad:fetch`, no se versiona.
+/.vad-tmp/
