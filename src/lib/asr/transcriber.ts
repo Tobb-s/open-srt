@@ -4,6 +4,9 @@ import {
   type AutomaticSpeechRecognitionPipeline,
 } from '@huggingface/transformers';
 import { assertCombinationSafe, type Dtype } from './models';
+import { sliceSamples } from '../vad/silero';
+import { alignBlockText, checkCoverage, type TimedText, type CoverageCheck } from '../vad/align';
+import type { Block } from '../vad/segments';
 
 /**
  * La lógica de transcripción, sin nada de mensajería.
@@ -37,6 +40,35 @@ export interface TranscribeProgress {
 export interface TranscribeResult {
   text: string;
   inferMs: number;
+}
+
+export interface SegmentedProgress {
+  /** Bloques ya transcritos. */
+  done: number;
+  total: number;
+  /** Segundos de audio cubiertos por los bloques terminados. */
+  processedSec: number;
+  durationSec: number;
+  partialText: string;
+}
+
+export interface SegmentedResult {
+  /** Un tramo por cada trozo de habla, con sus tiempos y su texto. */
+  segments: TimedText[];
+  /** Todo junto, para quien sólo quiere el texto. */
+  text: string;
+  inferMs: number;
+  /** Si hay motivos para sospechar que el modelo omitió contenido. */
+  coverage: CoverageCheck;
+}
+
+export interface SegmentedOptions {
+  audio: Float32Array;
+  durationSec: number;
+  blocks: readonly Block[];
+  language?: string;
+  onProgress?: (p: SegmentedProgress) => void;
+  signal?: AbortSignal;
 }
 
 export interface LoadOptions {
@@ -255,6 +287,69 @@ export class Transcriber {
 
     const inferMs = performance.now() - t0;
     return { text: ((out as { text?: string }).text ?? '').trim(), inferMs };
+  }
+
+  /**
+   * Transcribe bloque por bloque, con los tiempos que da el detector de voz.
+   *
+   * Es el camino de E2 y reemplaza al de un solo tirón para todo lo que necesite tiempos.
+   * Tres cosas mejoran respecto de mandar el archivo entero:
+   *
+   * 1. **Los subtítulos tienen tiempos sin pagar el costo de los timestamps del modelo**,
+   *    que suben el WER de 3,03 % a 4,52 % en audio difícil.
+   * 2. **El progreso vuelve a ser exacto**: bloques terminados sobre bloques totales. E1
+   *    tuvo que renunciar a la barra de porcentaje justamente porque sin timestamps no
+   *    sabía en qué segundo iba; contando bloques sí se sabe.
+   * 3. **Cada bloque empieza y termina en silencio**, así que el modelo nunca recibe una
+   *    palabra cortada por la mitad.
+   */
+  async transcribeSegmented(opts: SegmentedOptions): Promise<SegmentedResult> {
+    if (!this.asr) throw new Error('Se pidió transcribir sin modelo cargado');
+
+    const t0 = performance.now();
+    const salida: TimedText[] = [];
+    let acumulado = '';
+    let speechSec = 0;
+
+    for (const [i, block] of opts.blocks.entries()) {
+      if (opts.signal?.aborted) throw new Error('Cancelado');
+
+      const trozo = sliceSamples(opts.audio, block.startSec, block.endSec);
+      const call = this.asr as unknown as (
+        audio: Float32Array,
+        options: Record<string, unknown>,
+      ) => Promise<unknown>;
+
+      // Sin `chunk_length_s`: el bloque ya entra en la ventana del modelo por
+      // construcción, así que fragmentarlo otra vez sólo reintroduciría el problema de
+      // pegado. Y sin timestamps, por lo mismo de siempre.
+      const out = await call(trozo, {
+        language: opts.language,
+        task: 'transcribe',
+        return_timestamps: false,
+      });
+      const texto = ((out as { text?: string }).text ?? '').trim();
+
+      // El detector dice dónde está cada tramo; el modelo, qué se dijo en el bloque.
+      salida.push(...alignBlockText(block.segments, texto));
+      speechSec += block.speechSec;
+      acumulado = acumulado ? `${acumulado} ${texto}` : texto;
+
+      opts.onProgress?.({
+        done: i + 1,
+        total: opts.blocks.length,
+        processedSec: block.endSec,
+        durationSec: opts.durationSec,
+        partialText: acumulado,
+      });
+    }
+
+    return {
+      segments: salida,
+      text: acumulado,
+      inferMs: performance.now() - t0,
+      coverage: checkCoverage(salida, speechSec),
+    };
   }
 
   async dispose(): Promise<void> {

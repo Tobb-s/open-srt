@@ -30,6 +30,7 @@ TRANS = ROOT / "src" / "lib" / "asr" / "transcriber.ts"
 I18N = ROOT / "src" / "lib" / "i18n.ts"
 SEGS = ROOT / "src" / "lib" / "vad" / "segments.ts"
 ALIGN = ROOT / "src" / "lib" / "vad" / "align.ts"
+SUBS = ROOT / "src" / "lib" / "export" / "subtitles.ts"
 WAV = ROOT / "scripts" / "lib" / "wav.mjs"
 ENGINE = ROOT / "src" / "lib" / "asr" / "engine.ts"
 
@@ -267,6 +268,42 @@ MUTANTS = [
         "    suspicious: speechSec > 10 && wps < MIN_WORDS_PER_SPEECH_SEC,",
         "    suspicious: false,",
         "vuelve la omision silenciosa que E1 midio en 3 de 23 archivos",
+    ),
+    # -- export/ : los subtitulos de E2 --
+    (
+        "el SRT usa punto en vez de coma",
+        SUBS,
+        "formatTime(c.startSec, ',')} --> ${formatTime(c.endSec, ',')",
+        "formatTime(c.startSec, '.')} --> ${formatTime(c.endSec, '.')",
+        "un SRT con puntos falla en varios reproductores",
+    ),
+    (
+        "el VTT pierde su cabecera",
+        SUBS,
+        "return `WEBVTT",
+        "return `WEBVT",
+        "el navegador rechaza el archivo entero sin decir por que",
+    ),
+    (
+        "los subtitulos ya no se parten",
+        SUBS,
+        "    const partes = Math.max(1, porTamaño, porLectura, porDuracion);",
+        "    const partes = 1;",
+        "lineas que no entran en pantalla y textos ilegibles en su tiempo",
+    ),
+    (
+        "estirar un subtitulo invade al siguiente",
+        SUBS,
+        "    const tope = siguiente ? siguiente.startSec : Infinity;",
+        "    const tope = Infinity;",
+        "dos subtitulos superpuestos aparecen encimados",
+    ),
+    (
+        "el ajuste de linea deja de respetar el ancho",
+        SUBS,
+        "    else if (actual.length + 1 + w.length <= maxChars) actual += ` ${w}`;",
+        "    else if (true) actual += ` ${w}`;",
+        "todo iria en una sola linea larguisima",
     ),
 ]
 
