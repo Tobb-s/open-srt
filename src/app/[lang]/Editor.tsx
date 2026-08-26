@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TimedText } from '@/lib/vad/align';
 import { toCues, toSrt, toVtt, toPlainText } from '@/lib/export/subtitles';
+import { toCsv } from '@/lib/export/csv';
 import { dict, humanDuration, type Lang } from '@/lib/i18n';
 
 /**
@@ -24,6 +25,14 @@ interface Props {
    * en la cuota del navegador. El texto se edita igual; lo que falta es poder escucharlo.
    */
   audioUrl: string | null;
+  /**
+   * Si la fuente es un video, se muestra la imagen además de oírse.
+   *
+   * En una reunión grabada, ver quién habla y qué hay en pantalla es la mitad del trabajo de
+   * verificar una línea dudosa. Un `<audio>` sobre un mp4 reproduce igual, pero tira a la
+   * basura información que el archivo ya trae.
+   */
+  mediaKind: 'audio' | 'video';
   fileName: string;
   /** Qué índices ya venían corregidos a mano (de una sesión recuperada). */
   editedInitially?: ReadonlySet<number>;
@@ -43,12 +52,15 @@ export default function Editor({
   segments,
   suspicious,
   audioUrl,
+  mediaKind,
   fileName,
   editedInitially,
   onEdit,
 }: Props) {
   const t = dict(lang);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  // `HTMLMediaElement` y no `HTMLAudioElement`: `currentTime`, `play()` y `timeupdate` son
+  // de la clase base, así que el resto del componente no distingue audio de video.
+  const audioRef = useRef<HTMLMediaElement>(null);
   const [activo, setActivo] = useState<number>(-1);
   const [editados, setEditados] = useState<ReadonlySet<number>>(editedInitially ?? new Set());
 
@@ -103,9 +115,24 @@ export default function Editor({
         </div>
       )}
 
-      {audioUrl && (
-        <audio ref={audioRef} src={audioUrl} controls className="w-full" preload="metadata" />
-      )}
+      {audioUrl &&
+        (mediaKind === 'video' ? (
+          <video
+            ref={audioRef as React.RefObject<HTMLVideoElement>}
+            src={audioUrl}
+            controls
+            preload="metadata"
+            className="max-h-80 w-full rounded-xl bg-black"
+          />
+        ) : (
+          <audio
+            ref={audioRef as React.RefObject<HTMLAudioElement>}
+            src={audioUrl}
+            controls
+            preload="metadata"
+            className="w-full"
+          />
+        ))}
 
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-medium">{t.result.title}</h2>
@@ -161,32 +188,37 @@ export default function Editor({
         ))}
       </ol>
 
-      <div className="flex flex-wrap gap-3">
+      {/*
+        Los formatos van como grupo y no como una fila de botones sueltos: con cuatro ya
+        competían entre sí por la atención, y en E3 se suman más. La acción es una sola
+        —descargar— y el formato es el parámetro.
+      */}
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => void navigator.clipboard.writeText(toPlainText(segments))}
-          className="rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
+          className="mr-2 rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
         >
           {t.result.copy}
         </button>
-        <button
-          onClick={() => descargar(toPlainText(segments), 'txt', 'text/plain')}
-          className="rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
-        >
-          {t.result.download}
-        </button>
-        <button
-          onClick={() => descargar(toSrt(toCues(segments)), 'srt', 'application/x-subrip')}
-          className="rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
-        >
-          {t.editor.downloadSrt}
-        </button>
-        <button
-          onClick={() => descargar(toVtt(toCues(segments)), 'vtt', 'text/vtt')}
-          className="rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
-        >
-          {t.editor.downloadVtt}
-        </button>
+        <span className="text-sm text-neutral-500">{t.editor.downloadLabel}</span>
+        {(
+          [
+            ['TXT', () => toPlainText(segments), 'txt', 'text/plain'],
+            ['SRT', () => toSrt(toCues(segments)), 'srt', 'application/x-subrip'],
+            ['VTT', () => toVtt(toCues(segments)), 'vtt', 'text/vtt'],
+            ['CSV', () => toCsv(segments), 'csv', 'text/csv'],
+          ] as const
+        ).map(([nombre, generar, ext, mime]) => (
+          <button
+            key={ext}
+            onClick={() => descargar(generar(), ext, mime)}
+            className="rounded-full border border-neutral-300 px-3.5 py-1.5 font-mono text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+          >
+            {nombre}
+          </button>
+        ))}
       </div>
+      <p className="text-xs text-neutral-400">{t.editor.csvHint}</p>
     </section>
   );
 }

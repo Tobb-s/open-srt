@@ -86,8 +86,12 @@ export interface Dict {
   editor: {
     hint: string;
     edited: string;
-    downloadSrt: string;
-    downloadVtt: string;
+    /**
+     * Etiqueta del grupo de descargas. Los formatos van con su nombre a secas —TXT, SRT,
+     * VTT, CSV— porque son nombres propios: traducirlos sería inventar.
+     */
+    downloadLabel: string;
+    csvHint: string;
   };
   result: {
     title: string;
@@ -122,10 +126,10 @@ const es: Dict = {
       'a ningún servidor.',
   },
   drop: {
-    idle: 'Soltá un archivo de audio acá',
+    idle: 'Soltá un archivo de audio o video acá',
     hint: 'o elegilo desde tu computadora',
     button: 'Elegir archivo',
-    formats: 'MP3, WAV, M4A, OGG, FLAC y más',
+    formats: 'MP3, WAV, M4A, OGG, FLAC · MP4, WEBM, MOV y más',
   },
   privacy: {
     title: 'Qué sale y qué entra',
@@ -214,8 +218,8 @@ const es: Dict = {
   editor: {
     hint: 'Hacé clic en una línea para escuchar esa parte. El texto se puede corregir.',
     edited: 'editado',
-    downloadSrt: 'Descargar .srt',
-    downloadVtt: 'Descargar .vtt',
+    downloadLabel: 'Descargar',
+    csvHint: 'CSV: una fila por tramo, con los tiempos en segundos y en formato legible.',
   },
   result: {
     title: 'Transcripción',
@@ -229,8 +233,9 @@ const es: Dict = {
   },
   errors: {
     decode:
-      'No se pudo leer el audio de este archivo. Puede estar dañado o en un formato que el ' +
-      'navegador no abre.',
+      'No se pudo leer el audio de este archivo. Puede estar dañado, o traer una pista de ' +
+      'audio que este navegador no sabe abrir —pasa con algunos .mkv, que suelen usar AC-3—. ' +
+      'Probá con otro navegador, o convertilo a MP4 o a un audio suelto.',
     load:
       'No se pudo cargar el modelo. Revisá la conexión: la primera vez hay que descargarlo.',
     generic: 'Algo falló durante la transcripción.',
@@ -258,10 +263,10 @@ const en: Dict = {
       'a server.',
   },
   drop: {
-    idle: 'Drop an audio file here',
+    idle: 'Drop an audio or video file here',
     hint: 'or pick one from your computer',
     button: 'Choose file',
-    formats: 'MP3, WAV, M4A, OGG, FLAC and more',
+    formats: 'MP3, WAV, M4A, OGG, FLAC · MP4, WEBM, MOV and more',
   },
   privacy: {
     title: 'What leaves and what arrives',
@@ -350,8 +355,8 @@ const en: Dict = {
   editor: {
     hint: 'Click a line to hear that part. The text can be corrected.',
     edited: 'edited',
-    downloadSrt: 'Download .srt',
-    downloadVtt: 'Download .vtt',
+    downloadLabel: 'Download',
+    csvHint: 'CSV: one row per segment, with times in seconds and in readable form.',
   },
   result: {
     title: 'Transcript',
@@ -365,8 +370,9 @@ const en: Dict = {
   },
   errors: {
     decode:
-      'Could not read audio from this file. It may be damaged or in a format the browser ' +
-      'cannot open.',
+      'Could not read audio from this file. It may be damaged, or carry an audio track this ' +
+      'browser cannot open — this happens with some .mkv files, which often use AC-3. Try ' +
+      'another browser, or convert it to MP4 or to a plain audio file.',
     load: 'Could not load the model. Check your connection: the first run has to download it.',
     generic: 'Something failed during transcription.',
     degraded:

@@ -39,6 +39,8 @@ interface Sesion {
   segments: TimedText[];
   suspicious: boolean;
   audioUrl: string | null;
+  /** Se decide por el tipo del archivo, no por su extensión: la extensión miente. */
+  mediaKind: 'audio' | 'video';
   editedInitially: ReadonlySet<number>;
   inferMs: number;
 }
@@ -259,6 +261,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         // El audio para reproducir sale del archivo que el usuario acaba de abrir, esté o
         // no guardado: no hay razón para no poder escucharlo ahora.
         audioUrl: ponerAudioUrl(file.blob),
+        mediaKind: file.blob.type.startsWith('video/') ? 'video' : 'audio',
         editedInitially: new Set(),
         inferMs: out.inferMs,
       });
@@ -308,6 +311,9 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       })),
       suspicious: cargada.session.suspicious,
       audioUrl: ponerAudioUrl(cargada.audio),
+      // El tipo viaja con el Blob dentro de IndexedDB, así que una sesión recuperada sigue
+      // sabiendo que era un video.
+      mediaKind: cargada.audio?.type.startsWith('video/') ? 'video' : 'audio',
       editedInitially: new Set(cargada.segments.filter((x) => x.edited).map((x) => x.index)),
       inferMs: cargada.session.inferMs,
     });
@@ -465,7 +471,10 @@ export default function Transcribe({ lang }: { lang: Lang }) {
           <input
             ref={inputRef}
             type="file"
-            accept="audio/*"
+            // El video entra por el mismo camino que el audio: `decodeAudioData` saca la
+            // pista de audio de un mp4 o un webm sin ninguna dependencia extra. Medido en
+            // `/bench/video`; el detalle está en `docs/E3-ESTADO.md`.
+            accept="audio/*,video/*"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
@@ -612,6 +621,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
               segments={sesion.segments}
               suspicious={sesion.suspicious}
               audioUrl={sesion.audioUrl}
+              mediaKind={sesion.mediaKind}
               fileName={sesion.fileName}
               editedInitially={sesion.editedInitially}
               onEdit={onEdit}

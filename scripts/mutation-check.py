@@ -35,6 +35,8 @@ WAV = ROOT / "scripts" / "lib" / "wav.mjs"
 ENGINE = ROOT / "src" / "lib" / "asr" / "engine.ts"
 STORE = ROOT / "src" / "lib" / "store" / "session.ts"
 RUNTIME = ROOT / "src" / "lib" / "asr" / "runtime.ts"
+CSV = ROOT / "src" / "lib" / "export" / "csv.ts"
+PROBE = ROOT / "src" / "lib" / "video" / "probe.ts"
 
 # (nombre, archivo, texto original, texto mutado, qué debería atrapar)
 MUTANTS = [
@@ -407,6 +409,49 @@ MUTANTS = [
         "    suspicious: speechSec > 10 && wps < MIN_WORDS_PER_SPEECH_SEC,",
         "    suspicious: false,",
         "el modelo se saltea un tramo y nadie avisa",
+    ),
+    # ---- E3: CSV y la prueba de video ----
+    (
+        'el CSV deja de escapar comas y comillas',
+        CSV,
+        '  if (!/[",\\r\\n]/.test(value)) return value;',
+        '  if (true) return value;',
+        'una transcripcion con comas correria las columnas de todo el archivo',
+    ),
+    (
+        'el CSV pierde la marca de orden de bytes',
+        CSV,
+        "  return CSV_BOM + filas.join('\\r\\n') + '\\r\\n';",
+        "  return filas.join('\\r\\n') + '\\r\\n';",
+        'Excel en Windows mostraria los acentos rotos',
+    ),
+    (
+        'el tiempo legible del CSV vuelve a llevar coma',
+        CSV,
+        "        formatTime(t.startSec, '.'),",
+        "        formatTime(t.startSec, ','),",
+        'dos campos por fila necesitarian comillas por una razon evitable',
+    ),
+    (
+        'el CSV emite filas para tramos sin texto',
+        CSV,
+        '    if (!texto) continue;',
+        '    if (false) continue;',
+        'filas en blanco en la planilla',
+    ),
+    (
+        'el veredicto de la prueba de video se conforma con que haya energia',
+        PROBE,
+        '  return minConTono > 0 && minConTono > maxSinTono * ratio;',
+        '  return minConTono > 0;',
+        'un archivo de ruido pasaria por audio bien extraido',
+    ),
+    (
+        'el veredicto afirma sin datos suficientes',
+        PROBE,
+        '  if (conTono.length === 0 || sinTono.length === 0) return false;',
+        '  if (false) return false;',
+        'sin segundos de silencio no hay con que comparar',
     ),
 ]
 
