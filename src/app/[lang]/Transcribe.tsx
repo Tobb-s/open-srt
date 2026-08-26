@@ -222,23 +222,28 @@ export default function Transcribe({ lang }: { lang: Lang }) {
 
       const id = newSessionId();
       // Tres estados, no dos: guardado con audio, guardado sin audio, y **no guardado**
-      // —el navegador no dio IndexedDB—. Decir «el audio no entró» cuando no se guardó nada
-      // sería mentir sobre lo que pasó.
+      // —el navegador no dio IndexedDB, o no había nada que guardar—. Decir «el audio no
+      // entró» cuando no se guardó nada sería mentir sobre lo que pasó.
       let aviso: string | null = null;
+      // Una transcripción sin una sola palabra no se guarda. Si se guardara, la próxima
+      // visita ofrecería recuperar una pantalla vacía, que es peor que no ofrecer nada.
+      const hayTexto = out.segments.some((x) => x.text.trim());
       try {
-        const guardada = await storeRef.current?.save(
-          {
-            id,
-            fileName: file.name,
-            durationSec: file.durationSec,
-            createdAt: Date.now(),
-            speechSec: out.speechSec,
-            inferMs: out.inferMs,
-            suspicious: out.coverage.suspicious,
-          },
-          out.segments,
-          file.blob,
-        );
+        const guardada = hayTexto
+          ? await storeRef.current?.save(
+              {
+                id,
+                fileName: file.name,
+                durationSec: file.durationSec,
+                createdAt: Date.now(),
+                speechSec: out.speechSec,
+                inferMs: out.inferMs,
+                suspicious: out.coverage.suspicious,
+              },
+              out.segments,
+              file.blob,
+            )
+          : undefined;
         if (guardada) aviso = guardada.audioStored ? t.store.kept : t.store.audioTooBig;
       } catch {
         // Que no se pueda guardar no invalida la transcripción: se muestra igual, sin
