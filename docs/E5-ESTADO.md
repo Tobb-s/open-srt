@@ -119,9 +119,45 @@ comprueban todos antes de empezar y falla en un segundo, diciendo cuál.
 
 ---
 
-## Lo que falta de E5
+## 4. Cola de varios archivos
 
-- **Cola de varios archivos**, en serie, con progreso por archivo.
+Se eligen varios y se procesan **en serie**, con el estado de cada uno a la vista.
+
+**En serie y no en paralelo** porque hay un solo modelo cargado y un solo procesador: dos
+transcripciones a la vez no terminan antes, se estorban. Lo que sí se comparte es la carga del
+modelo —91 s con turbo, medido en E0—: pagarla una vez para diez archivos es la mitad del
+sentido de tener cola.
+
+**Se decodifica de a uno.** Decodificar los cinco de entrada dejaría cinco `Float32Array`
+gigantes vivos a la vez: media hora de audio son 115 MB, así que una cola de cinco archivos
+largos se comería más de medio giga antes de transcribir nada. Sólo el primero se decodifica
+al elegir —hace falta para mostrar la duración y la estimación—; los demás esperan como
+`File` y se decodifican en su turno.
+
+**Un archivo que falla no detiene la fila.** Perder los nueve que faltan porque el tercero
+está dañado sería lo peor que puede hacer una cola.
+
+### Comprobado con un archivo roto en el medio
+
+Tres archivos, el segundo con cabecera de WAV y basura adentro:
+
+| | |
+|---|---|
+| `archivo-1.wav` | **listo** · 14 tramos |
+| `archivo-2.wav` (dañado) | **falló** |
+| `archivo-3.wav` | **listo** · 16 tramos |
+
+«Cola: 2 de 3 listos», dos sesiones guardadas, cero corridas a medias colgadas y **ninguna
+petición que no sea GET**. Reabrir el primero desde la lista trae su transcripción —113
+palabras, 14 tramos— y no la del tercero que estaba en pantalla.
+
+Los resultados terminados se reabren **desde la base**, no desde memoria: con diez archivos
+largos, tener los diez resultados vivos a la vez es exactamente lo que la cola evita al
+decodificar de a uno.
+
+---
+
+## Lo que falta de E5
 - **Traducción.** Opus-MT de Helsinki-NLP es Apache 2.0 y son modelos por par de idiomas, así
   que se baja sólo el que hace falta. Que la calidad alcance para subtítulos es **hipótesis**.
 - **Resumen con IA.** Acá la promesa se tensa: local significa otro modelo grande; por API

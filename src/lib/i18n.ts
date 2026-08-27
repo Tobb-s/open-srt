@@ -90,6 +90,18 @@ export interface Dict {
     /** Lo que la separacion NO hace, dicho donde se ve el resultado. */
     caveat: string;
   };
+  queue: {
+    /** Encabeza la lista de archivos en cola. */
+    title: (hechos: number, total: number) => string;
+    pending: string;
+    running: string;
+    done: string;
+    failed: string;
+    /** Para volver a abrir una transcripción ya terminada de la cola. */
+    open: string;
+    /** Que se procesan de a uno, y por qué. */
+    hint: string;
+  };
   resume: {
     /** Se encontro este archivo a medio transcribir. */
     offer: (pct: number) => string;
@@ -249,6 +261,17 @@ const es: Dict = {
       'Cuando dos personas hablan a la vez, el tramo queda atribuido a una sola. Y a veces ' +
       'parte a una misma persona en dos: si ves un hablante de más, podés renombrarlo igual ' +
       'que al otro y quedan unidos.',
+  },
+  queue: {
+    title: (hechos, total) => `Cola: ${hechos} de ${total} listos`,
+    pending: 'en espera',
+    running: 'transcribiendo',
+    done: 'listo',
+    failed: 'falló',
+    open: 'Abrir',
+    hint:
+      'Se procesan de a uno: hay un solo modelo cargado y dos a la vez no terminan antes. El ' +
+      'modelo se descarga una sola vez para toda la cola.',
   },
   resume: {
     offer: (pct) =>
@@ -418,6 +441,17 @@ const en: Dict = {
       'When two people talk at once, the segment is attributed to just one of them. And it ' +
       'sometimes splits one person in two: if you see an extra speaker, rename it the same ' +
       'as the other and they merge.',
+  },
+  queue: {
+    title: (hechos, total) => `Queue: ${hechos} of ${total} done`,
+    pending: 'waiting',
+    running: 'transcribing',
+    done: 'done',
+    failed: 'failed',
+    open: 'Open',
+    hint:
+      'They run one at a time: there is a single model loaded and two at once do not finish ' +
+      'sooner. The model is downloaded once for the whole queue.',
   },
   resume: {
     offer: (pct) => `You had started this file and it stopped at ${pct} %. It can be resumed.`,

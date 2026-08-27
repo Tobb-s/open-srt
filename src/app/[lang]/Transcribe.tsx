@@ -41,6 +41,24 @@ interface LoadedFile {
   blob: Blob;
 }
 
+/**
+ * Un archivo esperando su turno.
+ *
+ * Guarda el `File`, **no** el audio decodificado. Decodificar los cinco de entrada dejaría
+ * cinco `Float32Array` gigantes vivos a la vez: media hora de audio son 115 MB, así que una
+ * cola de cinco archivos largos se comería más de medio giga antes de transcribir nada. Se
+ * decodifica de a uno, en su turno, y se suelta al terminar.
+ */
+interface ItemCola {
+  key: string;
+  name: string;
+  blob: File;
+  estado: 'pendiente' | 'procesando' | 'listo' | 'error';
+  /** La sesión que quedó guardada, para poder volver a abrirla desde la lista. */
+  sessionId?: string;
+  error?: string;
+}
+
 /** Lo que se muestra en el editor, venga de transcribir recién o de la base local. */
 interface Sesion {
   id: string;
@@ -75,6 +93,12 @@ export default function Transcribe({ lang }: { lang: Lang }) {
   const [pendiente, setPendiente] = useState<StoredSession | null>(null);
   /** Una corrida de este mismo archivo que quedó a medias. */
   const [corrida, setCorrida] = useState<StoredRun | null>(null);
+  /** Los archivos que faltan, en orden. Vacía cuando se eligió uno solo. */
+  const [cola, setCola] = useState<ItemCola[]>([]);
+  // Espejo para el bucle: leer `cola` del estado adentro del recorrido daría la lista del
+  // render en que se creó el callback.
+  const colaRef = useRef<ItemCola[]>([]);
+  colaRef.current = cola;
   const [aviso, setAviso] = useState<string | null>(null);
   // Idioma del audio, que NO es necesariamente el de la interfaz: alguien en /es puede
   // transcribir una reunión en inglés. Por eso es un control aparte.
@@ -165,28 +189,43 @@ export default function Transcribe({ lang }: { lang: Lang }) {
     };
   }, [avisoDeteccion]);
 
-  const onFile = useCallback(
-    async (f: File) => {
+  /** Decodifica un archivo y lo deja listo para transcribir. */
+  const prepararArchivo = useCallback(
+    async (f: File): Promise<LoadedFile> => {
+      const audio = await decodeToMono16k(await f.arrayBuffer());
+      return {
+        key: fileKeyOf(f),
+        name: f.name,
+        samples: audio.samples,
+        durationSec: audio.durationSec,
+        blob: f,
+      };
+    },
+    [],
+  );
+
+  const onFiles = useCallback(
+    async (fs: File[]) => {
+      if (fs.length === 0) return;
       setError(null);
       setSesion(null);
       setPartial('');
       setProcessedSec(undefined);
       setBlockInfo(null);
       setPhase('decoding');
+
+      // La cola guarda los `File`; sólo el primero se decodifica ahora, para poder mostrar
+      // duración y estimación antes de arrancar. Los demás esperan su turno.
+      setCola(
+        fs.map((f) => ({ key: fileKeyOf(f), name: f.name, blob: f, estado: 'pendiente' })),
+      );
+
       try {
-        const bytes = await f.arrayBuffer();
-        const audio = await decodeToMono16k(bytes);
-        const key = fileKeyOf(f);
-        setFile({
-          key,
-          name: f.name,
-          samples: audio.samples,
-          durationSec: audio.durationSec,
-          blob: f,
-        });
+        const primero = await prepararArchivo(fs[0]);
+        setFile(primero);
         // ¿Este archivo ya se había empezado? Se ofrece retomar, no se retoma solo: puede
         // haberlo interrumpido a propósito.
-        const previa = await storeRef.current?.loadRun(key).catch(() => null);
+        const previa = await storeRef.current?.loadRun(primero.key).catch(() => null);
         setCorrida(previa && previa.doneBlocks < previa.blocks.length ? previa : null);
         setPhase('ready');
       } catch {
@@ -194,12 +233,19 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         setPhase('error');
       }
     },
-    [t],
+    [t, prepararArchivo],
   );
 
-  const run = useCallback(
-    async (retomar: StoredRun | null = null) => {
-    if (!file || !profile) return;
+  /**
+   * Transcribe **un** archivo.
+   *
+   * Recibe cuál en vez de leerlo del estado, y eso es lo que permite encadenarlos: adentro de
+   * un bucle, un `useCallback` que lee `file` del estado se queda con el valor del render en
+   * que se creó y transcribiría el primer archivo una y otra vez.
+   */
+  const transcribirUno = useCallback(
+    async (elFile: LoadedFile, retomar: StoredRun | null = null): Promise<boolean> => {
+    if (!profile) return false;
     setError(null);
     setPartial('');
     setProcessedSec(undefined);
@@ -245,7 +291,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       let acumulados: TimedText[] = [...yaHechos];
       let bloques: StoredRun['blocks'] = retomar?.blocks ?? [];
 
-      const out = await engine.transcribeTimed(file.samples, file.durationSec, {
+      const out = await engine.transcribeTimed(elFile.samples, elFile.durationSec, {
         language: audioLang === 'auto' ? undefined : audioLang,
         diarize: separarHablantes,
         onDiarizeProgress: setAvanceHablantes,
@@ -273,16 +319,16 @@ export default function Transcribe({ lang }: { lang: Lang }) {
           void storeRef.current
             ?.saveRunProgress(
               {
-                fileKey: file.key,
-                fileName: file.name,
-                durationSec: file.durationSec,
+                fileKey: elFile.key,
+                fileName: elFile.name,
+                durationSec: elFile.durationSec,
                 updatedAt: Date.now(),
                 blocks: bloques,
                 doneBlocks: p.index + 1,
                 speechSec: p.speechSec,
                 language: audioLang === 'auto' ? undefined : audioLang,
               },
-              { fileKey: file.key, blockIndex: p.index, segments: [...p.segments] },
+              { fileKey: elFile.key, blockIndex: p.index, segments: [...p.segments] },
             )
             .catch(() => {
               // Que no se pueda guardar no detiene nada: se pierde poder retomar, no el
@@ -310,7 +356,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
           } else {
             estimator.refine(p.processedSec);
           }
-          setRemainingText(describeEstimate(estimator.estimate(file.durationSec, p.processedSec)));
+          setRemainingText(describeEstimate(estimator.estimate(elFile.durationSec, p.processedSec)));
         },
       });
 
@@ -342,15 +388,15 @@ export default function Transcribe({ lang }: { lang: Lang }) {
           ? await storeRef.current?.save(
               {
                 id,
-                fileName: file.name,
-                durationSec: file.durationSec,
+                fileName: elFile.name,
+                durationSec: elFile.durationSec,
                 createdAt: Date.now(),
                 speechSec: out.speechSec,
                 inferMs: out.inferMs,
                 suspicious: out.coverage.suspicious,
               },
               conNombres,
-              file.blob,
+              elFile.blob,
             )
           : undefined;
         if (guardada) aviso = guardada.audioStored ? t.store.kept : t.store.audioTooBig;
@@ -362,26 +408,74 @@ export default function Transcribe({ lang }: { lang: Lang }) {
 
       setSesion({
         id,
-        fileName: file.name,
+        fileName: elFile.name,
         segments: conNombres,
         suspicious: out.coverage.suspicious,
         // El audio para reproducir sale del archivo que el usuario acaba de abrir, esté o
         // no guardado: no hay razón para no poder escucharlo ahora.
-        audioUrl: ponerAudioUrl(file.blob),
-        mediaKind: file.blob.type.startsWith('video/') ? 'video' : 'audio',
+        audioUrl: ponerAudioUrl(elFile.blob),
+        mediaKind: elFile.blob.type.startsWith('video/') ? 'video' : 'audio',
         editedInitially: new Set(),
         inferMs: out.inferMs,
       });
       // Terminó: la corrida a medias ya no sirve para nada y ocuparía lugar.
-      void storeRef.current?.deleteRun(file.key).catch(() => {});
+      void storeRef.current?.deleteRun(elFile.key).catch(() => {});
+      // Y queda anotado cuál es su sesión, para poder reabrirla desde la lista sin
+      // transcribir de nuevo.
+      setCola((prev) => prev.map((x) => (x.key === elFile.key ? { ...x, sessionId: id } : x)));
       setCorrida(null);
       setAviso(aviso);
       setPhase('done');
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : t.errors.generic);
       setPhase('error');
+      return false;
     }
-  }, [file, profile, t, audioLang, ponerAudioUrl, separarHablantes]);
+  }, [profile, t, audioLang, ponerAudioUrl, separarHablantes]);
+
+  /**
+   * Recorre la cola, **en serie**.
+   *
+   * En serie y no en paralelo porque hay un solo modelo cargado y un solo procesador: dos
+   * transcripciones a la vez no terminan antes, se estorban. Lo que sí se comparte es la
+   * carga del modelo, que en E0 tardó 91 s — pagarla una vez para diez archivos es la mitad
+   * del sentido de tener cola.
+   *
+   * **Un archivo que falla no detiene la fila.** Se marca y sigue el siguiente: perder los
+   * nueve que faltan porque el tercero está dañado sería lo peor que puede hacer una cola.
+   */
+  const procesarCola = useCallback(
+    async (primero: LoadedFile, retomar: StoredRun | null) => {
+      const items = colaRef.current;
+      if (items.length <= 1) {
+        await transcribirUno(primero, retomar);
+        return;
+      }
+
+      for (const [i, item] of items.entries()) {
+        setCola((prev) => prev.map((x, j) => (j === i ? { ...x, estado: 'procesando' } : x)));
+        try {
+          // El primero ya viene decodificado —hizo falta para mostrar la estimación—; los
+          // demás se decodifican recién acá, y su audio se suelta al pasar al siguiente.
+          const preparado = i === 0 ? primero : await prepararArchivo(item.blob);
+          const ok = await transcribirUno(preparado, i === 0 ? retomar : null);
+          setCola((prev) =>
+            prev.map((x, j) => (j === i ? { ...x, estado: ok ? 'listo' : 'error' } : x)),
+          );
+        } catch (e) {
+          setCola((prev) =>
+            prev.map((x, j) =>
+              j === i
+                ? { ...x, estado: 'error', error: e instanceof Error ? e.message : String(e) }
+                : x,
+            ),
+          );
+        }
+      }
+    },
+    [transcribirUno, prepararArchivo],
+  );
 
   /**
    * Una corrección: se aplica en pantalla y se escribe en la base.
@@ -435,6 +529,36 @@ export default function Transcribe({ lang }: { lang: Lang }) {
     [],
   );
 
+  /**
+   * Vuelve a abrir una transcripción ya terminada de la cola.
+   *
+   * Sale de la base, no de memoria: con diez archivos largos, tener los diez resultados vivos
+   * a la vez es exactamente lo que la cola evita al decodificar de a uno.
+   */
+  const abrirDeLaCola = useCallback(
+    async (sessionId: string) => {
+      const cargada = await storeRef.current?.load(sessionId);
+      if (!cargada) return;
+      setSesion({
+        id: cargada.session.id,
+        fileName: cargada.session.fileName,
+        segments: cargada.segments.map((x) => ({
+          startSec: x.startSec,
+          endSec: x.endSec,
+          text: x.text,
+          speaker: x.speaker,
+        })),
+        suspicious: cargada.session.suspicious,
+        audioUrl: ponerAudioUrl(cargada.audio),
+        mediaKind: cargada.audio?.type.startsWith('video/') ? 'video' : 'audio',
+        editedInitially: new Set(cargada.segments.filter((x) => x.edited).map((x) => x.index)),
+        inferMs: cargada.session.inferMs,
+      });
+      setPhase('done');
+    },
+    [ponerAudioUrl],
+  );
+
   const restaurar = useCallback(async () => {
     const s = storeRef.current;
     if (!s || !pendiente) return;
@@ -480,6 +604,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
   const reset = useCallback(() => {
     ponerAudioUrl(null);
     setFile(null);
+    setCola([]);
     setSesion(null);
     setPartial('');
     setError(null);
@@ -585,6 +710,58 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         </section>
       )}
 
+      {/*
+        La cola. Sólo aparece con más de un archivo: con uno solo sería una lista de un
+        elemento, que es ruido.
+      */}
+      {cola.length > 1 && (
+        <section className="space-y-2 rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800">
+          <div className="flex flex-wrap items-baseline gap-3">
+            <h2 className="font-medium">
+              {t.queue.title(cola.filter((c) => c.estado === 'listo').length, cola.length)}
+            </h2>
+            <span className="text-xs text-neutral-500">{t.queue.hint}</span>
+          </div>
+          <ol className="divide-y divide-neutral-200 text-sm dark:divide-neutral-800">
+            {cola.map((c, i) => (
+              <li key={c.key} className="flex flex-wrap items-center gap-3 py-2">
+                <span className="w-5 shrink-0 text-right font-mono text-xs text-neutral-400">
+                  {i + 1}
+                </span>
+                <span className="flex-1 truncate">{c.name}</span>
+                <span
+                  className={
+                    c.estado === 'listo'
+                      ? 'text-green-700 dark:text-green-400'
+                      : c.estado === 'error'
+                        ? 'text-red-700 dark:text-red-400'
+                        : c.estado === 'procesando'
+                          ? 'text-blue-700 dark:text-blue-400'
+                          : 'text-neutral-400'
+                  }
+                >
+                  {c.estado === 'listo'
+                    ? t.queue.done
+                    : c.estado === 'error'
+                      ? t.queue.failed
+                      : c.estado === 'procesando'
+                        ? t.queue.running
+                        : t.queue.pending}
+                </span>
+                {c.estado === 'listo' && c.sessionId && (
+                  <button
+                    onClick={() => void abrirDeLaCola(c.sessionId!)}
+                    className="rounded-full border border-neutral-300 px-3 py-0.5 text-xs dark:border-neutral-700"
+                  >
+                    {t.queue.open}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
       {/* Zona de archivo */}
       {!file && !sesion && phase !== 'decoding' && (
         <section
@@ -596,8 +773,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
           onDrop={(e) => {
             e.preventDefault();
             setDragging(false);
-            const f = e.dataTransfer.files[0];
-            if (f) void onFile(f);
+            void onFiles([...e.dataTransfer.files]);
           }}
           className={`rounded-2xl border-2 border-dashed p-12 text-center transition-colors ${
             dragging
@@ -620,11 +796,11 @@ export default function Transcribe({ lang }: { lang: Lang }) {
             // El video entra por el mismo camino que el audio: `decodeAudioData` saca la
             // pista de audio de un mp4 o un webm sin ninguna dependencia extra. Medido en
             // `/bench/video`; el detalle está en `docs/E3-ESTADO.md`.
+            multiple
             accept="audio/*,video/*"
             className="hidden"
             onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void onFile(f);
+              void onFiles([...(e.target.files ?? [])]);
             }}
           />
         </section>
@@ -719,7 +895,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
                 )}
               </p>
               <button
-                onClick={() => void run(corrida)}
+                onClick={() => file && void procesarCola(file, corrida)}
                 className="rounded-full bg-blue-600 px-4 py-1.5 font-medium text-white"
               >
                 {t.resume.button}
@@ -738,7 +914,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
 
           <div className="flex gap-3 pt-1">
             <button
-              onClick={() => void run(null)}
+              onClick={() => file && void procesarCola(file, null)}
               className="rounded-full bg-blue-600 px-6 py-2.5 font-medium text-white"
             >
               {t.run.start}

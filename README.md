@@ -34,6 +34,8 @@ cierra con mediciones antes de pasar a la siguiente.
   texto se corrige en el lugar.
 - **Queda guardado en tu navegador.** Cerrás la pestaña, volvés, y la transcripción y tus
   correcciones siguen ahí. En tu máquina, y con un botón para borrarlo.
+- **Varios archivos de una vez.** Los ponés todos y se procesan en fila, uno atrás del otro,
+  con el estado de cada uno a la vista. Si uno está dañado, se marca y la fila sigue.
 - **Se puede retomar.** Con un archivo largo, el avance se guarda a medida que termina cada
   bloque: si cerrás a la mitad, al volver a elegir el archivo te ofrece seguir donde iba en
   vez de empezar de nuevo. Comprobado cortando una transcripción de 30 minutos por la mitad.
