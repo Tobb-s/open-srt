@@ -36,6 +36,10 @@ cierra con mediciones antes de pasar a la siguiente.
   correcciones siguen ahí. En tu máquina, y con un botón para borrarlo.
 - **Varios archivos de una vez.** Los ponés todos y se procesan en fila, uno atrás del otro,
   con el estado de cada uno a la vista. Si uno está dañado, se marca y la fila sigue.
+- **Traduce, con una advertencia grande.** Español ↔ inglés, en tu equipo, 235 MB por
+  dirección. Sale marcada como **borrador**: medido sobre 30 frases, 4 salieron con el sentido
+  cambiado y sonando perfectas. El original queda siempre al lado, porque una traducción mala
+  no la notás si no hablás el otro idioma.
 - **Se puede retomar.** Con un archivo largo, el avance se guarda a medida que termina cada
   bloque: si cerrás a la mitad, al volver a elegir el archivo te ofrece seguir donde iba en
   vez de empezar de nuevo. Comprobado cortando una transcripción de 30 minutos por la mitad.
@@ -93,7 +97,7 @@ funciona igual, con un modelo más chico.
 ## Desarrollo
 
 ```bash
-npm test             # 435 tests
+npm test             # 447 tests
 npm run mutation     # rompe el código a propósito y confirma que los tests lo atrapan
                      # (acepta un filtro: `npm run mutation -- csv.ts`)
 npm run corpus:build # regenera el corpus de medición desde OpenSLR
@@ -115,5 +119,7 @@ con los números que la sostienen.
   [onnx-community](https://huggingface.co/onnx-community). MIT / Apache-2.0 según la
   variante — el detalle verificado está en `src/lib/asr/models.ts`.
 - Motor: [transformers.js](https://github.com/huggingface/transformers.js).
+- Traducción: [Opus-MT](https://github.com/Helsinki-NLP/Opus-MT) de Helsinki-NLP, en la
+  conversión a ONNX de [onnx-community](https://huggingface.co/onnx-community), CC-BY-4.0.
 - Corpus de medición: [OpenSLR SLR61](https://www.openslr.org/61/) (español argentino) y
   [SLR83](https://www.openslr.org/83/) (inglés de Reino Unido e Irlanda), ambos CC BY-SA 4.0.

@@ -2,6 +2,7 @@
 import { Transcriber } from './transcriber';
 import { SpeechDetector } from '../vad/silero';
 import { SpeakerEmbedder } from '../diar/embedder';
+import { Translator, type Par } from '../translate/translator';
 import { diarize } from '../diar/diarize';
 import { toBlocks, type Segment } from '../vad/segments';
 import type { Dtype } from './models';
@@ -41,6 +42,8 @@ export type WorkerRequest =
       returnTimestamps?: boolean;
       withProgress: boolean;
     }
+  | { type: 'loadTranslator'; par: Par }
+  | { type: 'translate'; segments: TimedText[] }
   | { type: 'dispose' };
 
 export type WorkerResponse =
@@ -64,10 +67,14 @@ export type WorkerResponse =
   | { type: 'segmented'; segments: TimedText[]; text: string; inferMs: number; coverage: CoverageCheck }
   | { type: 'progress'; processedSec?: number; durationSec: number; partialText: string }
   | { type: 'done'; text: string; inferMs: number }
+  | { type: 'translatorReady' }
+  | { type: 'translateProgress'; done: number; total: number }
+  | { type: 'translated'; segments: TimedText[] }
   | { type: 'error'; message: string; fatal: boolean };
 
 const transcriber = new Transcriber();
 const detector = new SpeechDetector();
+const translator = new Translator();
 const embedder = new SpeakerEmbedder();
 
 /** El audio de la sesión, guardado para que detectar y transcribir lo compartan. */
@@ -164,9 +171,24 @@ self.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       return;
     }
 
+    if (req.type === 'loadTranslator') {
+      await translator.load(req.par, (p) => post({ type: 'download', ...p }));
+      post({ type: 'translatorReady' });
+      return;
+    }
+
+    if (req.type === 'translate') {
+      const segments = await translator.translate(req.segments, (p) =>
+        post({ type: 'translateProgress', ...p }),
+      );
+      post({ type: 'translated', segments });
+      return;
+    }
+
     if (req.type === 'dispose') {
       await transcriber.dispose();
       await detector.dispose();
+      await translator.dispose();
       await embedder.dispose();
       audio = null;
       return;

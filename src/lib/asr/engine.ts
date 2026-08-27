@@ -7,6 +7,7 @@ import {
 } from './transcriber';
 import { SpeechDetector } from '../vad/silero';
 import { SpeakerEmbedder } from '../diar/embedder';
+import { Translator, type Par } from '../translate/translator';
 import { diarize } from '../diar/diarize';
 import type { TimedText } from '../vad/align';
 import { toBlocks, totalSpeechSec, type Block, type Segment } from '../vad/segments';
@@ -96,6 +97,7 @@ export class AsrEngine {
   private fallback: Transcriber | null = null;
   private fallbackDetector: SpeechDetector | null = null;
   private fallbackEmbedder: SpeakerEmbedder | null = null;
+  private fallbackTranslator: Translator | null = null;
   private mode: EngineMode = 'worker';
   private degradedReason?: string;
   private profile?: ModelProfile;
@@ -373,6 +375,39 @@ export class AsrEngine {
     };
   }
 
+  /**
+   * Traduce una transcripción ya hecha.
+   *
+   * Aparte de `transcribeTimed` y no adentro: la traducción es una decisión posterior del
+   * usuario sobre un resultado que ya tiene. Meterla en el mismo camino obligaría a decidirla
+   * antes de ver la transcripción, y a rehacer todo para cambiar de idioma.
+   */
+  async translate(
+    par: Par,
+    segments: readonly TimedText[],
+    opts: {
+      onDownload?: (p: DownloadProgress) => void;
+      onProgress?: (p: { done: number; total: number }) => void;
+    } = {},
+  ): Promise<TimedText[]> {
+    if (this.mode === 'main-thread') {
+      this.fallbackTranslator ??= new Translator();
+      await this.fallbackTranslator.load(par, opts.onDownload);
+      return this.fallbackTranslator.translate(segments, opts.onProgress);
+    }
+
+    await this.request({ type: 'loadTranslator', par }, {
+      timeoutMs: LOAD_TIMEOUT_MS,
+      onDownload: opts.onDownload,
+    });
+    const res = await this.request(
+      { type: 'translate', segments: [...segments] },
+      { onTranslate: opts.onProgress },
+    );
+    if (res.type !== 'translated') throw new Error('Respuesta inesperada al traducir');
+    return res.segments;
+  }
+
   async dispose(): Promise<void> {
     this.worker?.postMessage({ type: 'dispose' } satisfies WorkerRequest);
     this.worker?.terminate();
@@ -382,6 +417,7 @@ export class AsrEngine {
     await this.fallbackDetector?.dispose();
     this.fallbackDetector = null;
     await this.fallbackEmbedder?.dispose();
+    await this.fallbackTranslator?.dispose();
     this.fallbackEmbedder = null;
   }
 
@@ -410,10 +446,12 @@ export class AsrEngine {
    */
   onBlocks?: (blocks: readonly Block[]) => void;
       onDiarize?: (p: { done: number; total: number }) => void;
+      onTranslate?: (p: { done: number; total: number }) => void;
       transfer?: Transferable[];
     } = {},
   ): Promise<WorkerResponse> {
-    const { onDownload, onProgress, onDetect, onBlock, onBlockDone, onDiarize, transfer } = opts;
+    const { onDownload, onProgress, onDetect, onBlock, onBlockDone, onDiarize, onTranslate, transfer } =
+      opts;
     const timeoutMs = opts.timeoutMs ?? 0;
     const worker = this.worker;
     if (!worker) return Promise.reject(new Error('No hay worker'));
@@ -451,6 +489,10 @@ export class AsrEngine {
         }
         if (msg.type === 'diarizeProgress') {
           onDiarize?.(msg);
+          return;
+        }
+        if (msg.type === 'translateProgress') {
+          onTranslate?.(msg);
           return;
         }
         cleanup();

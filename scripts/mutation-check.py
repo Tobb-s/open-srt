@@ -43,6 +43,7 @@ SUBS = ROOT / "src" / "lib" / "export" / "subtitles.ts"
 WAV = ROOT / "scripts" / "lib" / "wav.mjs"
 ENGINE = ROOT / "src" / "lib" / "asr" / "engine.ts"
 STORE = ROOT / "src" / "lib" / "store" / "session.ts"
+TRAD = ROOT / "src" / "lib" / "translate" / "translator.ts"
 RUNTIME = ROOT / "src" / "lib" / "asr" / "runtime.ts"
 CSV = ROOT / "src" / "lib" / "export" / "csv.ts"
 PROBE = ROOT / "src" / "lib" / "video" / "probe.ts"
@@ -662,6 +663,29 @@ MUTANTS = [
         '      .sort((a, b) => a.blockIndex - b.blockIndex)',
         '      .sort((a, b) => b.blockIndex - a.blockIndex)',
         'el texto saldria al reves al retomar',
+    ),
+
+    # ---- E5: traduccion ----
+    (
+        'la traduccion pierde los tiempos del tramo',
+        TRAD,
+        '      salida.push({\n        ...s,',
+        '      salida.push({\n        startSec: 0,\n        endSec: 0,',
+        'el texto traducido no correspondería con el audio',
+    ),
+    (
+        'se le pide al modelo que traduzca tramos vacios',
+        TRAD,
+        "        text: texto ? (await this.pipe(texto))[0].translation_text : '',",
+        '        text: (await this.pipe(s.text))[0].translation_text,',
+        'traducir la nada es una invitacion a que invente',
+    ),
+    (
+        'sin modelo cargado la traduccion devuelve el original',
+        TRAD,
+        "    if (!this.pipe) throw new Error('El traductor no está cargado');",
+        '    if (!this.pipe) return [...segments];',
+        'el usuario creeria que esta leyendo una traduccion',
     ),
 ]
 

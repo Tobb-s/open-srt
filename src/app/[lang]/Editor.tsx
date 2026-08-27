@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TimedText } from '@/lib/vad/align';
 import { toCues, toSrt, toVtt, toPlainText } from '@/lib/export/subtitles';
 import { toCsv } from '@/lib/export/csv';
+import { DESCARGA_MB as TRADUCCION_MB } from '@/lib/translate/translator';
 import { layoutTranscript } from '@/lib/export/document';
 import { colorDeHablante, ordenDeAparicion } from '@/lib/diar/colores';
 import { dict, humanDuration, type Lang } from '@/lib/i18n';
@@ -20,6 +21,13 @@ import { dict, humanDuration, type Lang } from '@/lib/i18n';
 interface Props {
   lang: Lang;
   segments: TimedText[];
+  /** La traducción, si se pidió. `null` mientras no exista. */
+  traduccion: TimedText[] | null;
+  /** En qué estado está: `null` si no se está traduciendo. */
+  traduciendo: { done: number; total: number } | null;
+  /** `null` si el idioma del audio no se sabe o coincide con el destino. */
+  puedeTraducir: { destino: string; etiqueta: string } | null;
+  onTraducir: () => void;
   /** Si hay motivos para sospechar que el modelo omitió contenido. */
   suspicious: boolean;
   /**
@@ -60,6 +68,10 @@ function formatClock(sec: number): string {
 export default function Editor({
   lang,
   segments,
+  traduccion,
+  traduciendo,
+  puedeTraducir,
+  onTraducir,
   suspicious,
   audioUrl,
   mediaKind,
@@ -74,6 +86,14 @@ export default function Editor({
   const audioRef = useRef<HTMLMediaElement>(null);
   const [activo, setActivo] = useState<number>(-1);
   const [editados, setEditados] = useState<ReadonlySet<number>>(editedInitially ?? new Set());
+  /**
+   * Qué se está mirando.
+   *
+   * El original **nunca se pisa**: se alterna. Si la traducción reemplazara al original no
+   * habría con qué comparar, y comparar es lo único que puede salvar a alguien de publicar
+   * una frase que dice otra cosa.
+   */
+  const [viendoTraduccion, setViendoTraduccion] = useState(false);
   const [armando, setArmando] = useState<string | null>(null);
 
   // Resaltar el tramo que suena. Se recalcula en cada `timeupdate`, que el navegador
@@ -125,15 +145,22 @@ export default function Editor({
     [fileName],
   );
 
+  // Lo que se ve y lo que se descarga son lo mismo: exportar algo distinto de lo que está en
+  // pantalla es la forma más rápida de que alguien publique una traducción creyendo que
+  // bajó el original.
+  const mostrados = viendoTraduccion && traduccion ? traduccion : segments;
+
   /** El modelo del documento, compartido por DOCX y PDF para que no se separen. */
   const modelo = useCallback(
     () =>
-      layoutTranscript(segments, {
+      layoutTranscript(mostrados, {
         fileName,
         durationHuman: humanDuration(segments.at(-1)?.endSec ?? 0, lang),
         labels: { title: t.editor.docTitle, subtitle: t.editor.docSubtitle },
       }),
-    [segments, fileName, lang, t],
+    // `mostrados` va en las dependencias: sin él, el DOCX y el PDF exportarían el original
+    // con la traducción a la vista, que es exactamente lo que el resto del diseño evita.
+    [mostrados, segments, fileName, lang, t],
   );
 
   // Los hablantes, en orden de aparicion: a quien habla primero le toca siempre el primer
@@ -142,9 +169,9 @@ export default function Editor({
   const colorDe = (nombre: string | undefined) =>
     nombre === undefined ? null : colorDeHablante(hablantes.indexOf(nombre));
 
-  const conTexto = segments.filter((s) => s.text.trim());
+  const conTexto = mostrados.filter((s) => s.text.trim());
   const palabras = conTexto.reduce((a, s) => a + s.text.trim().split(/\s+/).length, 0);
-  const hablaSec = segments.reduce((a, s) => a + Math.max(0, s.endSec - s.startSec), 0);
+  const hablaSec = mostrados.reduce((a, s) => a + Math.max(0, s.endSec - s.startSec), 0);
 
   return (
     <section className="space-y-4">
@@ -157,6 +184,48 @@ export default function Editor({
         <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950/40">
           <p className="font-medium text-amber-900 dark:text-amber-200">{t.omission.title}</p>
           <p className="mt-1 text-amber-800 dark:text-amber-300">{t.omission.body}</p>
+        </div>
+      )}
+
+      {/*
+        El control de traducción y su advertencia. La advertencia tiene el mismo peso visual
+        que el aviso de omisión, y por la misma razón: es lo que separa una herramienta que
+        avisa de una que deja publicar algo falso sin decir nada.
+      */}
+      {puedeTraducir && (
+        <div className="space-y-2">
+          {!traduccion && !traduciendo && (
+            <button
+              onClick={onTraducir}
+              className="rounded-full border border-neutral-300 px-5 py-2 text-sm dark:border-neutral-700"
+            >
+              {t.translate.label} {t.translate.to(puedeTraducir.etiqueta)} ·{' '}
+              {t.translate.button(TRADUCCION_MB)}
+            </button>
+          )}
+          {traduciendo && (
+            <p className="text-sm text-neutral-500">
+              {t.translate.running(traduciendo.done, traduciendo.total)}
+            </p>
+          )}
+          {traduccion && (
+            <>
+              <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 text-sm dark:border-amber-700 dark:bg-amber-950/40">
+                <p className="font-medium text-amber-900 dark:text-amber-200">
+                  {t.translate.warningTitle}
+                </p>
+                <p className="mt-1 text-amber-800 dark:text-amber-300">
+                  {t.translate.warningBody}
+                </p>
+              </div>
+              <button
+                onClick={() => setViendoTraduccion((v) => !v)}
+                className="rounded-full border border-neutral-300 px-4 py-1.5 text-sm dark:border-neutral-700"
+              >
+                {viendoTraduccion ? t.translate.showOriginal : t.translate.showTranslation}
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -184,7 +253,7 @@ export default function Editor({
         <span className="text-sm text-neutral-500">
           {t.result.words(palabras)}
           {' · '}
-          {t.detect.found(segments.length, humanDuration(hablaSec, lang))}
+          {t.detect.found(mostrados.length, humanDuration(hablaSec, lang))}
         </span>
       </div>
       {audioUrl ? (
@@ -215,7 +284,7 @@ export default function Editor({
       )}
 
       <ol className="divide-y divide-neutral-200 overflow-hidden rounded-2xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
-        {segments.map((s, i) => (
+        {mostrados.map((s, i) => (
           <li
             key={`${i}-${s.startSec}`}
             className={`flex gap-3 p-3 transition-colors ${
@@ -257,7 +326,9 @@ export default function Editor({
                 </span>
               )}
               <span
-                contentEditable
+                // No se edita con la traducción a la vista: se confundiría qué se está
+                // corrigiendo, y el editor guarda sobre el original.
+                contentEditable={!viendoTraduccion}
                 suppressContentEditableWarning
                 onBlur={(e) => {
                   const nuevo = e.currentTarget.textContent ?? '';
@@ -271,6 +342,15 @@ export default function Editor({
                 {s.text}
               </span>
             </div>
+            {/*
+              Con la traducción a la vista, el original va debajo. No es un adorno: es lo
+              único que le permite a alguien notar que una frase dice otra cosa.
+            */}
+            {viendoTraduccion && segments[i] && (
+              <span className="w-full shrink-0 pl-14 text-xs text-neutral-400">
+                {t.translate.originalLabel}: {segments[i].text}
+              </span>
+            )}
             {editados.has(i) && (
               <span className="shrink-0 self-start text-xs text-neutral-400">
                 {t.editor.edited}
@@ -287,7 +367,7 @@ export default function Editor({
       */}
       <div className="flex flex-wrap items-center gap-2">
         <button
-          onClick={() => void navigator.clipboard.writeText(toPlainText(segments))}
+          onClick={() => void navigator.clipboard.writeText(toPlainText(mostrados))}
           className="mr-2 rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
         >
           {t.result.copy}
@@ -295,10 +375,10 @@ export default function Editor({
         <span className="text-sm text-neutral-500">{t.editor.downloadLabel}</span>
         {(
           [
-            ['TXT', () => toPlainText(segments), 'txt', 'text/plain'],
-            ['SRT', () => toSrt(toCues(segments)), 'srt', 'application/x-subrip'],
-            ['VTT', () => toVtt(toCues(segments)), 'vtt', 'text/vtt'],
-            ['CSV', () => toCsv(segments), 'csv', 'text/csv'],
+            ['TXT', () => toPlainText(mostrados), 'txt', 'text/plain'],
+            ['SRT', () => toSrt(toCues(mostrados)), 'srt', 'application/x-subrip'],
+            ['VTT', () => toVtt(toCues(mostrados)), 'vtt', 'text/vtt'],
+            ['CSV', () => toCsv(mostrados), 'csv', 'text/csv'],
             [
               'DOCX',
               async () => (await import('@/lib/export/docx')).toDocxBlob(modelo()),

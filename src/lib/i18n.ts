@@ -90,6 +90,21 @@ export interface Dict {
     /** Lo que la separacion NO hace, dicho donde se ve el resultado. */
     caveat: string;
   };
+  translate: {
+    /** El control para pedirla, en el editor. */
+    label: string;
+    to: (idioma: string) => string;
+    button: (mb: number) => string;
+    running: (done: number, total: number) => string;
+    /** Lo que se ve arriba de la traducción. Tiene el peso del aviso de omisión a propósito. */
+    warningTitle: string;
+    warningBody: string;
+    /** Para volver al original. */
+    showOriginal: string;
+    showTranslation: string;
+    /** Bajo cada tramo traducido. */
+    originalLabel: string;
+  };
   queue: {
     /** Encabeza la lista de archivos en cola. */
     title: (hechos: number, total: number) => string;
@@ -261,6 +276,21 @@ const es: Dict = {
       'Cuando dos personas hablan a la vez, el tramo queda atribuido a una sola. Y a veces ' +
       'parte a una misma persona en dos: si ves un hablante de más, podés renombrarlo igual ' +
       'que al otro y quedan unidos.',
+  },
+  translate: {
+    label: 'Traducir',
+    to: (idioma) => `a ${idioma}`,
+    button: (mb) => `Traducir (${mb} MB de descarga la primera vez)`,
+    running: (done, total) => `Traduciendo… ${done} de ${total}`,
+    warningTitle: 'Esto es un borrador, no una traducción confiable',
+    warningBody:
+      'Medido sobre 30 frases: 4 salieron con el sentido cambiado, y sonando perfectas. ' +
+      '«Los más grandes éxitos» se convirtió en «the biggest "Sterntos"», una palabra que no ' +
+      'existe. Una transcripción mala se puede comparar con el audio; una traducción mala no ' +
+      'la vas a notar si no hablás el otro idioma. Revisala antes de publicarla.',
+    showOriginal: 'Ver original',
+    showTranslation: 'Ver traducción',
+    originalLabel: 'original',
   },
   queue: {
     title: (hechos, total) => `Cola: ${hechos} de ${total} listos`,
@@ -441,6 +471,22 @@ const en: Dict = {
       'When two people talk at once, the segment is attributed to just one of them. And it ' +
       'sometimes splits one person in two: if you see an extra speaker, rename it the same ' +
       'as the other and they merge.',
+  },
+  translate: {
+    label: 'Translate',
+    to: (idioma) => `to ${idioma}`,
+    button: (mb) => `Translate (${mb} MB download the first time)`,
+    running: (done, total) => `Translating… ${done} of ${total}`,
+    warningTitle: 'This is a draft, not a reliable translation',
+    warningBody:
+      'Measured over 30 sentences: 4 came out with the meaning changed, and sounding ' +
+      'perfect. «Los más grandes éxitos» became «the biggest "Sterntos"», a word that does ' +
+      'not exist. A bad transcript can be checked against the audio; a bad translation is ' +
+      'not something you will notice if you do not speak the other language. Review it ' +
+      'before publishing.',
+    showOriginal: 'Show original',
+    showTranslation: 'Show translation',
+    originalLabel: 'original',
   },
   queue: {
     title: (hechos, total) => `Queue: ${hechos} of ${total} done`,

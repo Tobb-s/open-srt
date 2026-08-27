@@ -17,6 +17,7 @@ import {
   type StoredSession,
 } from '@/lib/store/session';
 import { defaultSpeakerName } from '@/lib/diar/diarize';
+import { parPara } from '@/lib/translate/translator';
 import { dict, humanDuration, humanRange, type Lang } from '@/lib/i18n';
 import Editor from './Editor';
 
@@ -93,6 +94,9 @@ export default function Transcribe({ lang }: { lang: Lang }) {
   const [pendiente, setPendiente] = useState<StoredSession | null>(null);
   /** Una corrida de este mismo archivo que quedó a medias. */
   const [corrida, setCorrida] = useState<StoredRun | null>(null);
+  /** La traducción de la sesión en pantalla. Se pide a mano y vive sólo en memoria. */
+  const [traduccion, setTraduccion] = useState<TimedText[] | null>(null);
+  const [traduciendo, setTraduciendo] = useState<{ done: number; total: number } | null>(null);
   /** Los archivos que faltan, en orden. Vacía cuando se eligió uno solo. */
   const [cola, setCola] = useState<ItemCola[]>([]);
   // Espejo para el bucle: leer `cola` del estado adentro del recorrido daría la lista del
@@ -406,6 +410,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         aviso = null;
       }
 
+      setTraduccion(null);
       setSesion({
         id,
         fileName: elFile.name,
@@ -559,11 +564,37 @@ export default function Transcribe({ lang }: { lang: Lang }) {
     [ponerAudioUrl],
   );
 
+  /**
+   * Traduce lo que está en pantalla.
+   *
+   * A pedido y no automático: son 235 MB y una decisión del usuario sobre un resultado que ya
+   * tiene. Y **el original no se toca** — la traducción va en su propio estado.
+   */
+  const traducir = useCallback(async () => {
+    const engine = engineRef.current;
+    if (!engine || !sesion) return;
+    const par = parPara(audioLang === 'auto' ? undefined : audioLang, audioLang === 'es' ? 'en' : 'es');
+    if (!par) return;
+    setTraduciendo({ done: 0, total: sesion.segments.length });
+    try {
+      const out = await engine.translate(par, sesion.segments, {
+        onDownload: (p) => setDownloadPct(Math.round((p.loaded / p.total) * 100)),
+        onProgress: setTraduciendo,
+      });
+      setTraduccion(out);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t.errors.generic);
+    } finally {
+      setTraduciendo(null);
+    }
+  }, [audioLang, t, sesion]);
+
   const restaurar = useCallback(async () => {
     const s = storeRef.current;
     if (!s || !pendiente) return;
     const cargada = await s.load(pendiente.id);
     if (!cargada) return;
+    setTraduccion(null);
     setSesion({
       id: cargada.session.id,
       fileName: cargada.session.fileName,
@@ -998,6 +1029,19 @@ export default function Transcribe({ lang }: { lang: Lang }) {
               mediaKind={sesion.mediaKind}
               fileName={sesion.fileName}
               editedInitially={sesion.editedInitially}
+              traduccion={traduccion}
+              traduciendo={traduciendo}
+              puedeTraducir={
+                // Sólo cuando se sabe de qué idioma viene: con «Detectar» no se sabe, y
+                // elegir un par al azar traduciría desde un idioma equivocado sin avisar.
+                audioLang === 'auto'
+                  ? null
+                  : {
+                      destino: audioLang === 'es' ? 'en' : 'es',
+                      etiqueta: audioLang === 'es' ? t.file.audioLangEn : t.file.audioLangEs,
+                    }
+              }
+              onTraducir={() => void traducir()}
               onEdit={onEdit}
               onRenameSpeaker={onRenameSpeaker}
             />
