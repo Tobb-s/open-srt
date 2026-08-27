@@ -507,6 +507,21 @@ MUTANTS = [
         '  return true;',
         'pdf-lib tira con un emoji y no se genera archivo',
     ),
+    # ---- el plazo de la consulta a WebGPU ----
+    (
+        'la consulta a WebGPU vuelve a poder colgarse',
+        CAPS,
+        '    return await Promise.race([gpu.requestAdapter(), vencimiento]);',
+        '    return await gpu.requestAdapter();',
+        'la deteccion no termina nunca y la interfaz queda en blanco',
+    ),
+    (
+        'el plazo de WebGPU se confunde con no tener adaptador',
+        CAPS,
+        "    if (adapter === 'timeout') {",
+        '    if (false) {',
+        'el mensaje diria que no hay adaptador cuando en realidad no contesto',
+    ),
 ]
 
 

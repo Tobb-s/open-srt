@@ -93,6 +93,10 @@ export default function Transcribe({ lang }: { lang: Lang }) {
     return urlRef.current;
   }, []);
 
+  // El texto sale del efecto para no atarlo al diccionario entero: es una cadena estable
+  // para un idioma dado, y el efecto tiene que correr una sola vez.
+  const avisoDeteccion = t.errors.detect;
+
   // Detectar capacidades apenas carga: el usuario tiene que saber qué va a pasar
   // *antes* de elegir un archivo, no después.
   useEffect(() => {
@@ -108,6 +112,17 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       const pedido = new URLSearchParams(window.location.search).get('perfil');
       const forzado = pedido ? profileByKey(pedido) : undefined;
       setProfile(forzado ?? sel.profile);
+      setPhase('idle');
+    }).catch(() => {
+      if (!alive) return;
+      // Sin esto, un fallo de la detección dejaba la interfaz **vacía**: con un archivo ya
+      // elegido no se dibujaba nada, ni el panel del equipo ni un mensaje. Visto en una
+      // pestaña en segundo plano, donde WebGPU no contestaba.
+      setProfile(profileByKey('base-wasm') ?? null);
+      setSelection({
+        profile: profileByKey('base-wasm')!,
+        notice: { level: 'warn', text: avisoDeteccion },
+      });
       setPhase('idle');
     });
 
@@ -130,7 +145,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       storeRef.current?.close();
       void engineRef.current?.dispose();
     };
-  }, []);
+  }, [avisoDeteccion]);
 
   const onFile = useCallback(
     async (f: File) => {

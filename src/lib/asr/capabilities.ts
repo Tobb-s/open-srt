@@ -33,7 +33,43 @@ export interface Selection {
   notice?: { level: 'info' | 'warn'; text: string };
 }
 
-export async function detectCapabilities(): Promise<DeviceCapabilities> {
+/**
+ * Cuánto se espera a que WebGPU conteste antes de darlo por no disponible.
+ *
+ * `requestAdapter()` normalmente responde en menos de una décima. Pero **puede no responder
+ * nunca**: visto en una pestaña en segundo plano, la promesa se quedó colgada, la detección
+ * no terminó y la interfaz quedó en blanco —con el archivo ya elegido y sin un solo mensaje
+ * que explicara qué pasaba—. Un plazo convierte ese cuelgue en una respuesta: no hay WebGPU,
+ * se usa el camino sin GPU, y se dice.
+ */
+export const GPU_PROBE_TIMEOUT_MS = 8000;
+
+/**
+ * Pide el adaptador con un plazo.
+ *
+ * Separada para poder probarla con un `gpu` de mentira: una promesa que nunca resuelve no
+ * se puede provocar de otra forma, y es justo el caso que hay que cubrir.
+ */
+export async function requestAdapterWithTimeout(
+  gpu: GPU,
+  timeoutMs: number = GPU_PROBE_TIMEOUT_MS,
+): Promise<GPUAdapter | null | 'timeout'> {
+  let id: ReturnType<typeof setTimeout> | undefined;
+  const vencimiento = new Promise<'timeout'>((res) => {
+    id = setTimeout(() => res('timeout'), timeoutMs);
+  });
+  try {
+    return await Promise.race([gpu.requestAdapter(), vencimiento]);
+  } finally {
+    // Sin esto el temporizador mantiene vivo el proceso en Node y retrasa la salida de los
+    // tests; en el navegador es sólo prolijidad.
+    clearTimeout(id);
+  }
+}
+
+export async function detectCapabilities(
+  timeoutMs: number = GPU_PROBE_TIMEOUT_MS,
+): Promise<DeviceCapabilities> {
   const nav = navigator as Navigator & { deviceMemory?: number };
   const caps: DeviceCapabilities = {
     webgpu: false,
@@ -48,7 +84,11 @@ export async function detectCapabilities(): Promise<DeviceCapabilities> {
   }
 
   try {
-    const adapter = await gpu.requestAdapter();
+    const adapter = await requestAdapterWithTimeout(gpu, timeoutMs);
+    if (adapter === 'timeout') {
+      caps.webgpuReason = `WebGPU no contestó en ${Math.round(timeoutMs / 1000)} s.`;
+      return caps;
+    }
     if (!adapter) {
       caps.webgpuReason = 'No hay adaptador de WebGPU disponible.';
       return caps;

@@ -60,17 +60,23 @@ rechaza ruido parejo y rechaza el silencio total.
 Energía por segundo del mp4: `0 · 0,354 · 0,0001 · 0,354 · 0,0001 · 0,259` — exactamente el
 patrón que se grabó.
 
-### Lo medido en Firefox 154
+### Lo medido en los dos motores, sobre los mismos bytes
 
-| contenedor | graba | decodifica | señal en su lugar |
-|---|---|---|---|
-| `video/webm` (VP8 + Opus) | sí | sí | **sí** |
-| `video/mp4` (H.264 + AAC) | **no sabe grabarlo** | pendiente | pendiente |
+| archivo | Chrome 148 | Firefox 154 |
+|---|---|---|
+| `prueba-avc1.mp4` (H.264 + AAC) | ok · señal en su lugar | **ok · señal en su lugar** |
+| `prueba-avc1-renombrado.mov`, servido como `video/quicktime` | ok · señal en su lugar | **ok · señal en su lugar** |
+| `prueba-vp8.webm` | ok · señal en su lugar | ok · señal en su lugar |
+| `prueba-vp9.webm` | ok · señal en su lugar | ok · señal en su lugar |
 
-Firefox tiene `AudioDecoder` de WebCodecs completo —AAC, Opus, mp3, y además FLAC y Vorbis,
-que Chrome no pudo ni responder— así que **si `decodeAudioData` fallara con mp4, el camino de
-respaldo existe y no exige cabeceras**. Eso es lo que hace que la decisión de la etapa no
-dependa de este dato pendiente.
+Los dos motores deciden **por el contenido**, no por la extensión ni por el tipo declarado.
+Eso responde la pregunta que importaba para el `.mov` del teléfono: es ISOBMFF igual que un
+mp4, así que ese caso queda cubierto — aunque los átomos propios de QuickTime siguen sin
+probarse.
+
+Firefox tiene además `AudioDecoder` de WebCodecs completo —AAC, Opus, mp3, y también FLAC y
+Vorbis, que Chrome no pudo ni responder—, así que hay camino de respaldo sin cabeceras si
+alguna vez hiciera falta.
 
 ### El agujero del método, y cómo se tapó
 
@@ -202,12 +208,15 @@ fondo —ninguna página queda vacía— que tapa la clase entera y no sólo est
 
 ## Lo que falta para cerrar E3
 
-- Un video real de 20 minutos, de punta a punta, con el panel de red abierto. Los archivos de
-  prueba los genera el navegador y no cubren encodings de cámaras ni de Zoom. Queda
-  **declarado como no comprobado**.
-- **Firefox leyendo el mp4** que grabó Chrome. Es el único dato que falta de la matriz de
-  navegadores, y no bloquea la decisión: aunque falle, Firefox tiene WebCodecs con AAC.
-- `.mov` y `.mkv`: sin probar. `MediaRecorder` no los genera.
+- **Un video de 20 minutos.** Lo que se probó son 67 segundos (ver más abajo). La duración
+  se cubrió por separado, midiendo el techo de memoria hasta las dos horas, pero el camino
+  entero con un archivo largo **no está comprobado**.
+- **Encodings de cámaras y de Zoom.** El material de prueba lo genera `MediaRecorder`, que
+  produce lo que ese navegador sabe producir. Un teléfono o un Zoom pueden traer perfiles de
+  H.264 distintos.
+- **`.mkv`**: sin probar. `MediaRecorder` no lo genera y no hay archivo real a mano. Se sabe
+  que el audio **AC-3**, frecuente en ese contenedor, no lo decodifica ninguno de los dos
+  navegadores.
 - Safari: no hay forma de probarlo desde Windows.
 
 ## Una traba del entorno que costó media hora
@@ -225,3 +234,23 @@ Antes de eso hubo dos trabas reales, las dos arregladas en la prueba:
 - **Chrome estrangula los temporizadores en pestañas ocultas.** La grabación se controlaba
   con `setTimeout` y quedaba colgada. Ahora la marca el **reloj del audio**, que no se
   estrangula — y de paso la duración quedó exacta.
+
+## El defecto que apareció intentando la prueba de punta a punta
+
+Con el archivo ya elegido, la interfaz quedó **completamente en blanco**: ni el panel del
+equipo, ni el archivo, ni un mensaje de error. Leyendo los dos árboles de React, el que se
+estaba renderizando tenía `selection` y `profile` en `null`.
+
+La causa: **`gpu.requestAdapter()` puede quedarse colgado** — no rechaza, no resuelve. Pasó
+en una pestaña en segundo plano. No faltaba un `catch`: no había excepción que atrapar.
+Faltaba un plazo.
+
+Arreglado con tres cosas:
+
+1. Un plazo de 8 s que convierte el cuelgue en una respuesta: no hay WebGPU, se usa el camino
+   compatible, y se dice.
+2. Un `catch` en el componente que cae a un perfil seguro con aviso visible, en vez de dejar
+   la pantalla vacía.
+3. `requestAdapterWithTimeout` sale afuera para poder probarla: una promesa que nunca resuelve
+   no se puede provocar con el WebGPU real. Uno de sus tests **no terminaría** si el plazo no
+   existiera.

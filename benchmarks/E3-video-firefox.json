@@ -1,0 +1,185 @@
+{
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:154.0) Gecko/20100101 Firefox/154.0",
+  "webCodecs": {
+    "audioDecoder": true,
+    "videoDecoder": true
+  },
+  "codecs": [
+    {
+      "codec": "mp4a.40.2",
+      "supported": true
+    },
+    {
+      "codec": "mp4a.40.5",
+      "supported": true
+    },
+    {
+      "codec": "opus",
+      "supported": true
+    },
+    {
+      "codec": "mp3",
+      "supported": true
+    },
+    {
+      "codec": "flac",
+      "supported": true
+    },
+    {
+      "codec": "vorbis",
+      "supported": true
+    },
+    {
+      "codec": "pcm-s16",
+      "supported": true
+    },
+    {
+      "codec": "ac-3",
+      "supported": false
+    },
+    {
+      "codec": "ec-3",
+      "supported": false
+    }
+  ],
+  "containers": [
+    {
+      "mime": "video/mp4;codecs=avc1,mp4a.40.2",
+      "generated": false,
+      "decode": "no-generado"
+    },
+    {
+      "mime": "video/webm;codecs=vp8,opus",
+      "generated": true,
+      "blob": {},
+      "bytes": 76031,
+      "decode": "ok",
+      "durationSec": 6.01,
+      "sampleRate": 48000,
+      "channels": 2,
+      "energyPerSec": [
+        0,
+        0.3532,
+        0.0006,
+        0.3535,
+        0.0006,
+        0.2501,
+        0
+      ],
+      "signalOk": true
+    },
+    {
+      "mime": "video/webm;codecs=vp9,opus",
+      "generated": false,
+      "decode": "no-generado"
+    }
+  ],
+  "samples": [
+    {
+      "file": "prueba-avc1-renombrado.mov",
+      "bytes": 101318,
+      "decode": "ok",
+      "durationSec": 5.93,
+      "sampleRate": 48000,
+      "channels": 2,
+      "energyPerSec": [
+        0.0082,
+        0.3533,
+        0.0158,
+        0.353,
+        0.0204,
+        0.2588
+      ],
+      "signalOk": true
+    },
+    {
+      "file": "prueba-avc1.mp4",
+      "bytes": 101318,
+      "decode": "ok",
+      "durationSec": 5.93,
+      "sampleRate": 48000,
+      "channels": 2,
+      "energyPerSec": [
+        0.0082,
+        0.3533,
+        0.0158,
+        0.353,
+        0.0204,
+        0.2588
+      ],
+      "signalOk": true
+    },
+    {
+      "file": "prueba-vp8.webm",
+      "bytes": 68757,
+      "decode": "ok",
+      "durationSec": 5.94,
+      "sampleRate": 48000,
+      "channels": 2,
+      "energyPerSec": [
+        0,
+        0.3529,
+        0.0287,
+        0.3524,
+        0.0287,
+        0.2578
+      ],
+      "signalOk": true
+    },
+    {
+      "file": "prueba-vp9.webm",
+      "bytes": 75640,
+      "decode": "ok",
+      "durationSec": 5.94,
+      "sampleRate": 48000,
+      "channels": 2,
+      "energyPerSec": [
+        0,
+        0.3529,
+        0.0287,
+        0.3524,
+        0.0287,
+        0.2578
+      ],
+      "signalOk": true
+    }
+  ],
+  "memoryCeiling": [
+    {
+      "minutes": 10,
+      "allocated": true,
+      "resampled": true,
+      "ms": 19
+    },
+    {
+      "minutes": 20,
+      "allocated": true,
+      "resampled": true,
+      "ms": 36
+    },
+    {
+      "minutes": 30,
+      "allocated": true,
+      "resampled": true,
+      "ms": 55
+    },
+    {
+      "minutes": 60,
+      "allocated": true,
+      "resampled": true,
+      "ms": 110
+    },
+    {
+      "minutes": 90,
+      "allocated": true,
+      "resampled": true,
+      "ms": 159
+    },
+    {
+      "minutes": 120,
+      "allocated": true,
+      "resampled": true,
+      "ms": 228
+    }
+  ]
+}

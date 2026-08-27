@@ -113,6 +113,8 @@ export interface Dict {
     load: string;
     generic: string;
     degraded: string;
+    /** Cuando no se pudo averiguar qué puede el equipo y hay que asumir lo mínimo. */
+    detect: string;
   };
   footer: { stage: string; source: string };
 }
@@ -247,6 +249,9 @@ const es: Dict = {
     load:
       'No se pudo cargar el modelo. Revisá la conexión: la primera vez hay que descargarlo.',
     generic: 'Algo falló durante la transcripción.',
+    detect:
+      'No se pudo averiguar qué puede tu equipo, así que se usa el modelo más compatible. ' +
+      'Va a cometer bastantes más errores. Recargar la página suele resolverlo.',
     degraded:
       'No se pudo usar un proceso aparte, así que la transcripción corre en la misma ' +
       'pestaña. **La página va a quedar congelada mientras trabaja** — no está trabada.',
@@ -386,6 +391,9 @@ const en: Dict = {
       'another browser, or convert it to MP4 or to a plain audio file.',
     load: 'Could not load the model. Check your connection: the first run has to download it.',
     generic: 'Something failed during transcription.',
+    detect:
+      'Could not work out what your machine can do, so the most compatible model is used. ' +
+      'It will make considerably more mistakes. Reloading the page usually fixes it.',
     degraded:
       'A separate process could not be used, so transcription runs in this tab. **The page ' +
       'will freeze while it works** — it is not stuck.',
