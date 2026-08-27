@@ -24,16 +24,20 @@ import { pinTransformersRuntime } from '../asr/runtime';
 const MODELO = 'onnx-community/wespeaker-voxceleb-resnet34-LM';
 
 /**
- * `q8` y no `fp32`.
+ * `q8` y no `fp32`, y está **medido**.
  *
- * El de embeddings es un modelo chico y su salida es un vector que después sólo se compara
- * por ángulo, no una probabilidad que haya que calibrar. La cuantización mueve el coseno en
- * la tercera decimal, y la meseta del umbral medido en la fase A —de 0,35 a 0,50— es mucho
- * más ancha que eso.
+ * La fase A eligió el umbral midiendo en `fp32`, así que llevar el producto a `q8` era un
+ * cambio de dtype sin medición — justo lo que la regla de E0 prohíbe, porque las
+ * combinaciones rotas cargan sin error y devuelven basura con aplomo.
  *
- * Aun así **es una combinación distinta de la que se midió**, así que la calidad con `q8`
- * está por comprobar y anotada como pendiente. El dtype no se cambia sin volver a medir, que
- * es la regla que E0 dejó escrita.
+ * Rehecho el barrido y el holdout con `OPENSRT_DIAR_DTYPE=q8`, los números salen **idénticos**
+ * a los de `fp32`: mismo DER, misma confusión, mismos grupos. Y no es que el parámetro se
+ * ignore — comprobado aparte, `q8` y `fp32` dan vectores distintos (0 de 256 componentes
+ * iguales, coseno 0,9949). La cuantización mueve el ángulo 0,005 y la meseta del umbral tiene
+ * 0,15 de ancho, así que ninguna decisión de agrupamiento llega a cambiar.
+ *
+ * El control está en `embeddings.integration.test.ts`: sin él, «q8 da lo mismo» no
+ * distinguiría una cuantización inofensiva de un parámetro ignorado en silencio.
  */
 const DTYPE = 'q8';
 

@@ -1,6 +1,6 @@
 # E3 — estado
 
-Actualizado: 26 de agosto de 2026. **En curso** — falta la prueba con material real.
+Actualizado: 27 de agosto de 2026. **Cerrada.**
 
 **Objetivo de la etapa:** aceptar lo que la gente realmente tiene —un mp4 de una reunión, un
 mov del teléfono— y entregar en los formatos que realmente usa.
@@ -208,12 +208,10 @@ fondo —ninguna página queda vacía— que tapa la clase entera y no sólo est
 
 ## Lo que falta para cerrar E3
 
-- **Un video de 20 minutos.** Lo que se probó son 67 segundos (ver más abajo). La duración
-  se cubrió por separado, midiendo el techo de memoria hasta las dos horas, pero el camino
-  entero con un archivo largo **no está comprobado**.
-- **Encodings de cámaras y de Zoom.** El material de prueba lo genera `MediaRecorder`, que
-  produce lo que ese navegador sabe producir. Un teléfono o un Zoom pueden traer perfiles de
-  H.264 distintos.
+- ~~Un video de 20 minutos.~~ **Hecho el 27/08/2026 con uno de 30.** Ver abajo.
+- **Encodings de cámaras y de Zoom.** Parcialmente cubierto: el video largo lo codificó
+  **x264 desde VLC**, que es otro codificador que el del navegador. Un teléfono o un Zoom
+  pueden traer todavía otros perfiles de H.264.
 - **`.mkv`**: sin probar. `MediaRecorder` no lo genera y no hay archivo real a mano. Se sabe
   que el audio **AC-3**, frecuente en ese contenedor, no lo decodifica ninguno de los dos
   navegadores.
@@ -254,3 +252,54 @@ Arreglado con tres cosas:
 3. `requestAdapterWithTimeout` sale afuera para poder probarla: una promesa que nunca resuelve
    no se puede provocar con el WebGPU real. Uno de sus tests **no terminaría** si el plazo no
    existiera.
+
+
+---
+
+## El archivo largo, de punta a punta (27/08/2026)
+
+El criterio pedía 20 minutos. Se probó con **30**.
+
+**Cómo se armó el material.** `MediaRecorder` sólo produce lo que el navegador sabe grabar,
+y grabar media hora exige media hora de reloj. La salida fue **VLC como codificador**: una
+imagen fija de fondo más los 30 minutos de habla del corpus, transcodificados a H.264 con
+**x264** y AAC. Eso da además algo que la prueba anterior no tenía: un codificador de video
+distinto del del navegador.
+
+VLC **no** puede escribir `.mkv` —no trae muxer de Matroska— así que ese contenedor sigue sin
+probarse.
+
+| | |
+|---|---|
+| Archivo | mp4, 13,3 MB, **30 min 1 s**, H.264 (x264) + AAC |
+| Tiempo total | **7 min 40 s** |
+| Tramos de voz | 399 · 16 min 40 s de habla |
+| Palabras de referencia · obtenidas | 3373 · **3394** |
+| Cobertura del vocabulario | **94,1 %** |
+| RTF sobre el archivo | 0,255 |
+| RTF sobre el habla | **0,46** |
+| **Peticiones que no son GET** | **ninguna** |
+
+El 94,1 % es lo esperado del perfil sin GPU (29,6 % de WER medido en E0); lo que este número
+comprueba no es la calidad del modelo sino que el audio extraído del contenedor es el correcto
+a lo largo de media hora, no sólo en los primeros segundos.
+
+### Y un defecto de medición que sólo se ve con un archivo largo
+
+La estimación previa dijo **13 min 21 s** y tardó **7 min 40 s**. No es que el RTF estuviera
+mal: es que **desde E2 sólo se transcribe lo que el detector marca como voz**, y este archivo
+es 44 % silencio.
+
+Eso rompía dos cosas a la vez:
+
+1. **El RTF aprendido se guardaba por segundo de archivo.** Este archivo aporta 0,255 y uno
+   sin silencio aporta 0,46 — los dos describen el mismo equipo, lo que cambia es el archivo.
+   Promediarlos da un predictor que no predice. Ahora la unidad es el **segundo de habla**, y
+   la clave de almacenamiento pasó a `v2` para que las observaciones viejas, que están en la
+   otra unidad, no se mezclen.
+2. **La estimación previa se presentaba como una predicción.** Antes de detectar la voz no se
+   puede saber cuánto silencio hay, así que lo honesto es un **techo**: ahora dice «va a
+   tardar **como mucho**» y explica por qué, con este mismo caso como ejemplo.
+
+Es la misma lección que E1 ya había anotado —«la unidad de la medición tiene que ser la de la
+predicción»— apareciendo en otro lugar dos etapas después.

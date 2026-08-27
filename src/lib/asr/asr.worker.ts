@@ -26,7 +26,13 @@ export type WorkerRequest =
   | { type: 'detect' }
   | { type: 'loadEmbedder' }
   | { type: 'diarize'; segments: Segment[] }
-  | { type: 'transcribeSegmented'; segments: Segment[]; language?: string }
+  | {
+      type: 'transcribeSegmented';
+      segments: Segment[];
+      language?: string;
+      /** Lo que ya estaba hecho, si se esta retomando una corrida interrumpida. */
+      resume?: { doneBlocks: number; segments: TimedText[]; speechSec: number };
+    }
   | {
       type: 'transcribe';
       audio: Float32Array;
@@ -48,6 +54,13 @@ export type WorkerResponse =
   | { type: 'diarizeProgress'; done: number; total: number }
   | { type: 'diarized'; speakers: string[]; count: number }
   | { type: 'blockProgress'; done: number; total: number; processedSec: number; durationSec: number; partialText: string }
+  /**
+   * Un bloque termino, con lo que produjo **ese** bloque.
+   *
+   * Sólo lo suyo, no el acumulado: en un archivo de dos horas son unos quinientos bloques, y
+   * remandar la lista completa en cada uno serian megabytes de mensajes para nada.
+   */
+  | { type: 'blockDone'; index: number; segments: TimedText[]; speechSec: number }
   | { type: 'segmented'; segments: TimedText[]; text: string; inferMs: number; coverage: CoverageCheck }
   | { type: 'progress'; processedSec?: number; durationSec: number; partialText: string }
   | { type: 'done'; text: string; inferMs: number }
@@ -131,6 +144,8 @@ self.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
         durationSec,
         blocks: toBlocks(req.segments),
         language: req.language,
+        resumeFrom: req.resume,
+        onBlockDone: (p) => post({ type: 'blockDone', ...p, segments: [...p.segments] }),
         onProgress: (p) => post({ type: 'blockProgress', ...p }),
       });
       post({ type: 'segmented', ...r });

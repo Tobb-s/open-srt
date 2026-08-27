@@ -26,7 +26,15 @@ import type { TimedText } from '../vad/align';
  */
 
 export const DB_NAME = 'opensrt';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
+
+/**
+ * Cuántas corridas a medio hacer se conservan.
+ *
+ * Menos que sesiones terminadas: una corrida interrumpida sólo sirve para retomarla, y si
+ * quedaron cinco tiradas es que ninguna importaba.
+ */
+export const MAX_RUNS = 3;
 
 /**
  * Cuántas sesiones se conservan. Cada una arrastra su audio, así que el tope no es
@@ -69,6 +77,43 @@ export interface StoredSegment {
   edited: boolean;
 }
 
+/**
+ * Una transcripción a medio hacer.
+ *
+ * ── Por qué existe ──
+ *
+ * Hasta E5 sólo se guardaba el resultado **terminado**. En un archivo de dos horas eso
+ * significa que cerrar la pestaña sin querer a los 100 minutos tira todo, y eso es
+ * inaceptable — es el trabajo de una hora y media del equipo de alguien.
+ *
+ * ── Por qué se guardan los bloques ──
+ *
+ * Reanudar exige que los bloques sean **los mismos** de la vez anterior: si se recalcularan
+ * con el detector, un cambio de umbral o de versión daría otros bordes y los tramos ya hechos
+ * no encajarían con los nuevos. Se guardan y se vuelven a pasar tal cual.
+ *
+ * ── La clave ──
+ *
+ * Es del **archivo**, no de la sesión: nombre, tamaño y fecha de modificación. Alcanza para
+ * reconocer «este es el mismo archivo que dejaste a medias» sin leer dos horas de audio para
+ * calcular un hash.
+ */
+export interface StoredRun {
+  /** `nombre|tamaño|modificado`. Ver arriba por qué no es un hash del contenido. */
+  fileKey: string;
+  fileName: string;
+  durationSec: number;
+  updatedAt: number;
+  /** Los bordes de cada bloque, tal como los dio el detector la primera vez. */
+  blocks: Array<{ startSec: number; endSec: number; segments: Array<{ startSec: number; endSec: number }>; speechSec: number }>;
+  /** Cuántos bloques del principio están hechos. */
+  doneBlocks: number;
+  /** Lo que produjeron, en orden. */
+  segments: Array<{ startSec: number; endSec: number; text: string }>;
+  speechSec: number;
+  language?: string;
+}
+
 export interface LoadedSession {
   session: StoredSession;
   segments: StoredSegment[];
@@ -93,6 +138,19 @@ function finished(tx: IDBTransaction): Promise<void> {
 /** Rango que cubre todos los tramos de una sesión, con la clave compuesta [id, índice]. */
 function segmentRange(sessionId: string): IDBKeyRange {
   return IDBKeyRange.bound([sessionId, -Infinity], [sessionId, Infinity]);
+}
+
+/**
+ * Identifica un archivo entre visitas, sin leerlo entero.
+ *
+ * Nombre, tamaño y fecha de modificación. Un hash del contenido sería más exacto pero exige
+ * leer dos horas de audio antes de poder decir «esto ya lo empezaste», que es justo lo que se
+ * quiere evitar. La colisión posible —otro archivo con el mismo nombre, el mismo tamaño al
+ * byte y la misma fecha al milisegundo— se paga con una oferta de reanudar que no corresponde,
+ * y el usuario puede decir que no.
+ */
+export function fileKeyOf(file: { name: string; size: number; lastModified: number }): string {
+  return `${file.name}|${file.size}|${file.lastModified}`;
 }
 
 export function newSessionId(): string {
@@ -125,6 +183,12 @@ export class SessionStore {
         }
         if (!db.objectStoreNames.contains('audio')) {
           db.createObjectStore('audio');
+        }
+        // Versión 2. La subida es **aditiva**: no toca lo que ya había, así que una sesión
+        // guardada con la versión 1 se sigue abriendo igual. Migrar datos acá sería la forma
+        // más rápida de perder transcripciones ajenas por un error propio.
+        if (!db.objectStoreNames.contains('runs')) {
+          db.createObjectStore('runs', { keyPath: 'fileKey' });
         }
       };
       req.onsuccess = () => resolve(new SessionStore(req.result));
@@ -255,12 +319,50 @@ export class SessionStore {
     await finished(tx);
   }
 
+  /* ---------------------------------------------------------------- *
+   * Corridas a medio hacer
+   * ---------------------------------------------------------------- */
+
+  /** Guarda o pisa el avance de una corrida. */
+  async saveRun(run: StoredRun): Promise<void> {
+    const tx = this.db.transaction('runs', 'readwrite');
+    tx.objectStore('runs').put(run);
+    await finished(tx);
+    await this.pruneRuns();
+  }
+
+  async loadRun(fileKey: string): Promise<StoredRun | null> {
+    const tx = this.db.transaction('runs', 'readonly');
+    return (await promisify<StoredRun | undefined>(tx.objectStore('runs').get(fileKey))) ?? null;
+  }
+
+  async deleteRun(fileKey: string): Promise<void> {
+    const tx = this.db.transaction('runs', 'readwrite');
+    tx.objectStore('runs').delete(fileKey);
+    await finished(tx);
+  }
+
+  async listRuns(): Promise<StoredRun[]> {
+    const tx = this.db.transaction('runs', 'readonly');
+    const todas = await promisify<StoredRun[]>(tx.objectStore('runs').getAll());
+    return todas.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  private async pruneRuns(): Promise<void> {
+    for (const vieja of (await this.listRuns()).slice(MAX_RUNS)) {
+      await this.deleteRun(vieja.fileKey);
+    }
+  }
+
   /** Borra todo. Es la salida para quien no quiere dejar su audio en el disco. */
   async clear(): Promise<void> {
-    const tx = this.db.transaction(['sessions', 'segments', 'audio'], 'readwrite');
+    const tx = this.db.transaction(['sessions', 'segments', 'audio', 'runs'], 'readwrite');
     tx.objectStore('sessions').clear();
     tx.objectStore('segments').clear();
     tx.objectStore('audio').clear();
+    // Las corridas a medio hacer también: «borrar lo guardado» tiene que borrar todo, y una
+    // transcripción a medias es contenido del usuario igual que una terminada.
+    tx.objectStore('runs').clear();
     await finished(tx);
   }
 

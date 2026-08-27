@@ -9,7 +9,7 @@ import { SpeechDetector } from '../vad/silero';
 import { SpeakerEmbedder } from '../diar/embedder';
 import { diarize } from '../diar/diarize';
 import type { TimedText } from '../vad/align';
-import { toBlocks, totalSpeechSec, type Segment } from '../vad/segments';
+import { toBlocks, totalSpeechSec, type Block, type Segment } from '../vad/segments';
 import { detectCapabilities, selectProfile, type DeviceCapabilities, type Selection } from './capabilities';
 import type { ModelProfile } from './models';
 import type { WorkerRequest, WorkerResponse } from './asr.worker';
@@ -55,6 +55,21 @@ export interface TimedCallbacks {
   onDetectProgress?: (p: { processedSec: number; durationSec: number }) => void;
   /** Avance de la transcripción, **por bloques**: exacto, no estimado. */
   onBlockProgress?: (p: SegmentedProgress) => void;
+  /**
+   * Un bloque terminó, con lo que produjo ese bloque.
+   *
+   * Es lo que permite guardar el avance en el momento en vez de al final. Lo expone el motor
+   * —y no cada camino por su cuenta— para que quien guarda no tenga que saber si está
+   * corriendo en un worker o en el hilo principal.
+   */
+  onBlockDone?: (p: { index: number; segments: readonly TimedText[]; speechSec: number }) => void;
+  /**
+   * Los bloques, una vez, antes de empezar a transcribir.
+   *
+   * Quien quiera poder **retomar** los necesita: son lo que define en qué se cortó el audio,
+   * y recalcularlos después podría dar otros bordes. El motor los tiene y nadie más.
+   */
+  onBlocks?: (blocks: readonly Block[]) => void;
   /** Avance de la separación de hablantes: una inferencia por tramo largo. */
   onDiarizeProgress?: (p: { done: number; total: number }) => void;
 }
@@ -201,7 +216,25 @@ export class AsrEngine {
   async transcribeTimed(
     audio: Float32Array,
     durationSec: number,
-    opts: { language?: string; diarize?: boolean } & TimedCallbacks = {},
+    opts: {
+      language?: string;
+      diarize?: boolean;
+      /**
+       * Retomar una corrida interrumpida.
+       *
+       * Trae también **los tramos de voz** que había encontrado el detector la primera vez, y
+       * con eso el detector no se vuelve a correr. No es sólo ahorrar los 24 s que tarda en
+       * media hora de audio: si se recalcularan y un umbral o una versión hubieran cambiado,
+       * los bordes serían otros y los bloques ya hechos no encajarían con los nuevos. Nada
+       * fallaría — saldría una transcripción con los tiempos corridos.
+       */
+      resume?: {
+        doneBlocks: number;
+        segments: TimedText[];
+        speechSec: number;
+        speechSegments: Segment[];
+      };
+    } & TimedCallbacks = {},
   ): Promise<TimedResult> {
     if (this.mode === 'main-thread') {
       if (!this.fallback) throw new Error('Motor no cargado');
@@ -212,17 +245,27 @@ export class AsrEngine {
         opts.onDownload?.({ file: 'detector de voz', loaded, total }),
       );
 
-      opts.onPhase?.('detecting');
-      const { segments } = await this.fallbackDetector.detect(
-        audio, durationSec, undefined, opts.onDetectProgress,
-      );
+      let segments: Segment[];
+      if (opts.resume) {
+        segments = opts.resume.speechSegments;
+      } else {
+        opts.onPhase?.('detecting');
+        ({ segments } = await this.fallbackDetector.detect(
+          audio, durationSec, undefined, opts.onDetectProgress,
+        ));
+      }
+
+      const bloques = toBlocks(segments);
+      opts.onBlocks?.(bloques);
 
       opts.onPhase?.('transcribing');
       const r = await this.fallback.transcribeSegmented({
         audio,
         durationSec,
-        blocks: toBlocks(segments),
+        blocks: bloques,
         language: opts.language,
+        resumeFrom: opts.resume,
+        onBlockDone: opts.onBlockDone,
         onProgress: opts.onBlockProgress,
       });
 
@@ -267,14 +310,33 @@ export class AsrEngine {
       { transfer: [copia.buffer] },
     );
 
-    opts.onPhase?.('detecting');
-    const det = await this.request({ type: 'detect' }, { onDetect: opts.onDetectProgress });
-    if (det.type !== 'detected') throw new Error('Respuesta inesperada al detectar voz');
+    let speechSegments: Segment[];
+    let speechSecTotal: number;
+    if (opts.resume) {
+      // Al retomar, los tramos vienen de la corrida anterior: ver el comentario de `resume`.
+      speechSegments = opts.resume.speechSegments;
+      speechSecTotal = totalSpeechSec(speechSegments);
+    } else {
+      opts.onPhase?.('detecting');
+      const det = await this.request({ type: 'detect' }, { onDetect: opts.onDetectProgress });
+      if (det.type !== 'detected') throw new Error('Respuesta inesperada al detectar voz');
+      speechSegments = det.segments;
+      speechSecTotal = det.speechSec;
+    }
+
+    // `toBlocks` es determinista sobre los mismos tramos, así que esto da exactamente lo que
+    // va a usar el worker. Recalcularlo acá evita tener que devolverlos por mensaje.
+    opts.onBlocks?.(toBlocks(speechSegments));
 
     opts.onPhase?.('transcribing');
     const res = await this.request(
-      { type: 'transcribeSegmented', segments: det.segments, language: opts.language },
-      { onBlock: opts.onBlockProgress },
+      {
+        type: 'transcribeSegmented',
+        segments: speechSegments,
+        language: opts.language,
+        resume: opts.resume,
+      },
+      { onBlock: opts.onBlockProgress, onBlockDone: opts.onBlockDone },
     );
     if (res.type !== 'segmented') throw new Error('Respuesta inesperada al transcribir');
 
@@ -292,7 +354,7 @@ export class AsrEngine {
 
       opts.onPhase?.('diarizing');
       const dia = await this.request(
-        { type: 'diarize', segments: det.segments },
+        { type: 'diarize', segments: speechSegments },
         { onDiarize: opts.onDiarizeProgress },
       );
       if (dia.type !== 'diarized') throw new Error('Respuesta inesperada al separar hablantes');
@@ -305,8 +367,8 @@ export class AsrEngine {
       text: res.text,
       inferMs: res.inferMs,
       coverage: res.coverage,
-      speechSegments: det.segments,
-      speechSec: det.speechSec,
+      speechSegments,
+      speechSec: speechSecTotal,
       speakerCount,
     };
   }
@@ -339,11 +401,19 @@ export class AsrEngine {
       onProgress?: (p: TranscribeProgress) => void;
       onDetect?: (p: { processedSec: number; durationSec: number }) => void;
       onBlock?: (p: SegmentedProgress) => void;
+      onBlockDone?: (p: { index: number; segments: readonly TimedText[]; speechSec: number }) => void;
+  /**
+   * Los bloques, una vez, antes de empezar a transcribir.
+   *
+   * Quien quiera poder **retomar** los necesita: son lo que define en qué se cortó el audio,
+   * y recalcularlos después podría dar otros bordes. El motor los tiene y nadie más.
+   */
+  onBlocks?: (blocks: readonly Block[]) => void;
       onDiarize?: (p: { done: number; total: number }) => void;
       transfer?: Transferable[];
     } = {},
   ): Promise<WorkerResponse> {
-    const { onDownload, onProgress, onDetect, onBlock, onDiarize, transfer } = opts;
+    const { onDownload, onProgress, onDetect, onBlock, onBlockDone, onDiarize, transfer } = opts;
     const timeoutMs = opts.timeoutMs ?? 0;
     const worker = this.worker;
     if (!worker) return Promise.reject(new Error('No hay worker'));
@@ -373,6 +443,10 @@ export class AsrEngine {
         }
         if (msg.type === 'blockProgress') {
           onBlock?.(msg);
+          return;
+        }
+        if (msg.type === 'blockDone') {
+          onBlockDone?.(msg);
           return;
         }
         if (msg.type === 'diarizeProgress') {

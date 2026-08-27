@@ -39,7 +39,13 @@ export interface Dict {
   };
   file: {
     duration: (human: string) => string;
+    /**
+     * Encabeza la estimación previa. Es un **techo**, no una promesa: antes de detectar la
+     * voz no se sabe cuánto del archivo es silencio, y el silencio no se transcribe.
+     */
     estimateBefore: string;
+    /** Por qué el número de arriba es un techo y no una predicción. */
+    estimateCeiling: string;
     estimateApprox: string;
     estimateLearned: (n: number) => string;
     tooLong: string;
@@ -83,6 +89,14 @@ export interface Dict {
     rename: string;
     /** Lo que la separacion NO hace, dicho donde se ve el resultado. */
     caveat: string;
+  };
+  resume: {
+    /** Se encontro este archivo a medio transcribir. */
+    offer: (pct: number) => string;
+    button: string;
+    discard: string;
+    /** Mientras corre, para que se vea que cerrar no pierde todo. */
+    saving: string;
   };
   store: {
     /** Que el audio quedó en el disco de esta máquina hay que decirlo, no dejarlo pasar. */
@@ -178,15 +192,19 @@ const es: Dict = {
   },
   file: {
     duration: (human) => `Duración: ${human}`,
-    estimateBefore: 'Va a tardar',
+    estimateBefore: 'Va a tardar como mucho',
+    estimateCeiling:
+      'Es un techo: los silencios no se transcriben, así que un audio con pausas termina ' +
+      'bastante antes. Medido: un video de 30 minutos con 44 % de silencio tardó 7 min 40 s ' +
+      'contra los 13 min que decía esta estimación.',
     estimateApprox: 'estimación aproximada, todavía sin medir en tu equipo',
     estimateLearned: (n) =>
       n === 1
         ? 'según lo que tardó tu equipo la vez anterior'
         : `según lo que tardó tu equipo las ${n} veces anteriores`,
     tooLong:
-      'Es un archivo largo. Si cerrás la pestaña mientras transcribe, se pierde y hay que ' +
-      'empezar de nuevo: lo que se guarda es el resultado terminado, no el avance.',
+      'Es un archivo largo. El avance se guarda a medida que termina cada bloque, así que si ' +
+      'cerrás la pestaña podés retomar donde iba en vez de empezar de nuevo.',
     audioLang: 'Idioma del audio',
     audioLangAuto: 'Detectar',
     audioLangEs: 'Español',
@@ -231,6 +249,13 @@ const es: Dict = {
       'Cuando dos personas hablan a la vez, el tramo queda atribuido a una sola. Y a veces ' +
       'parte a una misma persona en dos: si ves un hablante de más, podés renombrarlo igual ' +
       'que al otro y quedan unidos.',
+  },
+  resume: {
+    offer: (pct) =>
+      `Este archivo lo habías empezado y quedó al ${pct} %. Se puede retomar donde iba.`,
+    button: 'Retomar',
+    discard: 'Empezar de nuevo',
+    saving: 'El avance se guarda a medida que termina cada bloque: podés cerrar y volver.',
   },
   store: {
     kept:
@@ -336,15 +361,19 @@ const en: Dict = {
   },
   file: {
     duration: (human) => `Length: ${human}`,
-    estimateBefore: 'This will take',
+    estimateBefore: 'This will take at most',
+    estimateCeiling:
+      'That is a ceiling: silence is not transcribed, so audio with pauses finishes well ' +
+      'before. Measured: a 30-minute video that was 44 % silence took 7 min 40 s against the ' +
+      '13 min this estimate showed.',
     estimateApprox: 'rough estimate, not yet measured on your machine',
     estimateLearned: (n) =>
       n === 1
         ? 'based on how long your machine took last time'
         : `based on how long your machine took the last ${n} times`,
     tooLong:
-      'This is a long file. Closing the tab mid-run loses it and you have to start over: ' +
-      'what gets saved is the finished transcript, not the progress.',
+      'This is a long file. Progress is saved as each block finishes, so if you close the tab ' +
+      'you can resume where it stopped instead of starting over.',
     audioLang: 'Audio language',
     audioLangAuto: 'Detect',
     audioLangEs: 'Spanish',
@@ -389,6 +418,12 @@ const en: Dict = {
       'When two people talk at once, the segment is attributed to just one of them. And it ' +
       'sometimes splits one person in two: if you see an extra speaker, rename it the same ' +
       'as the other and they merge.',
+  },
+  resume: {
+    offer: (pct) => `You had started this file and it stopped at ${pct} %. It can be resumed.`,
+    button: 'Resume',
+    discard: 'Start over',
+    saving: 'Progress is saved as each block finishes: you can close and come back.',
   },
   store: {
     kept:

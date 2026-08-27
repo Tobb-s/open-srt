@@ -173,3 +173,61 @@ describe.skipIf(!disponible)('embeddings de hablante con WeSpeaker', () => {
     expect(Math.abs(brecha)).toBeLessThan(0.15);
   }, 900_000);
 });
+
+describe('el dtype del modelo de embeddings', () => {
+  /**
+   * El producto corre este modelo en `q8` y la fase A lo midió en `fp32`.
+   *
+   * La regla que dejó E0 es que **un cambio de dtype exige volver a medir**, nunca «probar si
+   * anda»: las combinaciones rotas cargan sin error y devuelven basura con aplomo. Este test
+   * es la mitad barata de esa medición — la cara está en `umbral.integration.test.ts`, que
+   * rehace el barrido y el holdout con `OPENSRT_DIAR_DTYPE=q8`.
+   *
+   * Lo que se comprueba acá son dos cosas, y la primera es un **control**: que el parámetro
+   * de dtype haga algo. Sin él, «q8 da el mismo resultado que fp32» no distinguiría una
+   * cuantización inofensiva de un parámetro que transformers.js ignoró en silencio.
+   */
+  let a: Float32Array;
+  let b: Float32Array;
+
+  beforeAll(async () => {
+    if (!disponible) return;
+    const { AutoModel, AutoProcessor } = await import('@huggingface/transformers');
+    const { readWav: leer } = await import('../../../scripts/lib/wav.mjs');
+    const wav = leer(readFileSync(path.join(ROOT, 'public/corpus/es-multi-3min.wav')));
+    const trozo = wav.samples.slice(RATE * 5, RATE * 8);
+    const proc = await AutoProcessor.from_pretrained(MODELO);
+    const vector = async (dtype: 'fp32' | 'q8') => {
+      const m = await AutoModel.from_pretrained(MODELO, { dtype, device: 'cpu' });
+      const out = await m(await proc(trozo));
+      return Float32Array.from(out.last_hidden_state.data as Float32Array);
+    };
+    a = await vector('fp32');
+    b = await vector('q8');
+  }, 900_000);
+
+  it('CONTROL: el dtype se aplica de verdad — q8 y fp32 NO dan lo mismo', () => {
+    // Si transformers.js ignorara el parámetro y cargara siempre el mismo archivo, los dos
+    // vectores serían idénticos bit a bit y toda la comparación de abajo no probaría nada.
+    expect(a.length).toBe(b.length);
+    const identicas = a.reduce((n, x, i) => n + (x === b[i] ? 1 : 0), 0);
+    expect(identicas, 'q8 devolvió exactamente lo mismo que fp32: el dtype no se aplicó').
+      toBeLessThan(a.length / 2);
+  });
+
+  it('pero la diferencia es mucho menor que el ancho de la meseta del umbral', () => {
+    // Medido: coseno 0,9949 entre el mismo audio en fp32 y en q8. El umbral vive en una
+    // meseta de 0,35 a 0,50 —0,15 de ancho— así que una perturbación de 0,005 no puede
+    // mover ninguna decisión de agrupamiento. Eso es lo que explica que el barrido y el
+    // holdout den exactamente los mismos números con los dos dtypes.
+    let d = 0, na = 0, nb = 0;
+    for (let i = 0; i < a.length; i++) {
+      d += a[i] * b[i];
+      na += a[i] * a[i];
+      nb += b[i] * b[i];
+    }
+    const coseno = d / (Math.sqrt(na) * Math.sqrt(nb));
+    console.log(`coseno fp32 ↔ q8: ${coseno.toFixed(6)}`);
+    expect(coseno).toBeGreaterThan(0.98);
+  });
+});

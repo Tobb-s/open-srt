@@ -17,9 +17,24 @@
  * posterior idéntica dio 0,565, un 25 % más, sin más cambio que el momento (estado
  * térmico, carga de fondo). Un promedio arrastra las corridas anómalas; la mediana de las
  * últimas observaciones las ignora.
+ *
+ * ── Por segundo de HABLA, no de archivo (v2) ──
+ *
+ * Hasta la v1 se guardaba `tiempo / duración del archivo`. **Estaba mal**, y se vio con un
+ * video de 30 minutos: como desde E2 sólo se transcribe lo que el detector marca como voz,
+ * ese archivo —44 % silencio— dio 0,255, mientras que uno sin silencio da 0,46. Los dos
+ * números describían el mismo equipo y el mismo modelo; lo que cambiaba era **el archivo**.
+ * Promediarlos daba un predictor que no predice nada.
+ *
+ * Ahora la unidad es el segundo de habla, que sí es una propiedad del equipo. Es la misma
+ * lección que E1 ya había anotado —«la unidad de la medición tiene que ser la de la
+ * predicción»— aplicada en otro lugar.
+ *
+ * **La clave cambia a `v2` a propósito.** Las observaciones viejas están en la otra unidad y
+ * mezclarlas sería exactamente el error que esto corrige; se quedan huérfanas y se ignoran.
  */
 
-const KEY = 'asr:rtf:v1';
+const KEY = 'asr:rtf:v2';
 /** Cuántas observaciones se guardan por perfil. Suficientes para una mediana estable. */
 const MAX_SAMPLES = 5;
 
@@ -63,10 +78,10 @@ export function learnedRtf(profileKey: string): number | undefined {
  * navegador estuvo en segundo plano y el reloj siguió corriendo, darían un RTF que no
  * describe al equipo y contaminaría las estimaciones siguientes.
  */
-export function recordRtf(profileKey: string, rtf: number, audioSec: number): void {
+export function recordRtf(profileKey: string, rtf: number, speechSec: number): void {
   if (!Number.isFinite(rtf) || rtf <= 0 || rtf > 100) return;
-  // Con menos de una ventana de audio, el relleno hasta 30 s domina y el RTF sale inflado.
-  if (audioSec < 30) return;
+  // Con menos de una ventana de habla, el relleno hasta 30 s domina y el RTF sale inflado.
+  if (speechSec < 30) return;
 
   const store = read();
   const list = store[profileKey] ?? [];

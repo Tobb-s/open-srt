@@ -34,6 +34,9 @@ cierra con mediciones antes de pasar a la siguiente.
   texto se corrige en el lugar.
 - **Queda guardado en tu navegador.** Cerrás la pestaña, volvés, y la transcripción y tus
   correcciones siguen ahí. En tu máquina, y con un botón para borrarlo.
+- **Se puede retomar.** Con un archivo largo, el avance se guarda a medida que termina cada
+  bloque: si cerrás a la mitad, al volver a elegir el archivo te ofrece seguir donde iba en
+  vez de empezar de nuevo. Comprobado cortando una transcripción de 30 minutos por la mitad.
 - **Avisa cuando puede faltar contenido.** Un detector de voz mide cuánto se habló; si el
   texto no da cuenta de ese tiempo, lo dice.
 - **Bilingüe por URL**: `/es` y `/en`.
@@ -88,7 +91,7 @@ funciona igual, con un modelo más chico.
 ## Desarrollo
 
 ```bash
-npm test             # 418 tests
+npm test             # 433 tests
 npm run mutation     # rompe el código a propósito y confirma que los tests lo atrapan
                      # (acepta un filtro: `npm run mutation -- csv.ts`)
 npm run corpus:build # regenera el corpus de medición desde OpenSLR

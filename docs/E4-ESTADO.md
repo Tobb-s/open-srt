@@ -251,6 +251,43 @@ proporción no está medida.
 2. **Tiende a partir de más.** El arreglo es del usuario —renombrar dos iguales— y no del
    modelo. No es lo ideal, pero es honesto: la alternativa sería juntar de más por nuestra
    cuenta y equivocarnos sin que se note.
-3. **`q8` en el modelo de embeddings está sin medir.** La fase A midió con `fp32`. El dtype no
-   se cambia sin volver a medir, que es la regla que dejó E0, así que esto queda anotado como
-   pendiente y no como hecho.
+3. ~~`q8` en el modelo de embeddings está sin medir.~~ **Medido el 27/08/2026.** Ver abajo.
+
+
+---
+
+## El `q8` del modelo de embeddings, medido (27/08/2026)
+
+El producto corre el modelo de hablantes en `q8` por tamaño, pero la fase A eligió el umbral
+midiendo en `fp32`. Eso era un cambio de dtype sin medición, que es exactamente lo que la
+regla de E0 prohíbe.
+
+Rehecho el barrido y el holdout con `OPENSRT_DIAR_DTYPE=q8`:
+
+| | fp32 | q8 |
+|---|---|---|
+| Meseta del barrido | 0,35 – 0,50 | **0,35 – 0,50** |
+| Umbral elegido | 0,475 | **0,475** |
+| `es-multi-holdout` | DER 2,8 % · conf. 0,71 % · 4 grupos | **idéntico** |
+| `en-multi-holdout` | DER 2,3 % · conf. 0,00 % · 4 grupos | **idéntico** |
+
+Idénticos hasta el último decimal. Eso podía significar dos cosas muy distintas, y una de
+ellas era que el dtype no se estuviera aplicando — transformers.js podría haber ignorado el
+parámetro y cargado el mismo archivo las dos veces.
+
+**El control que lo separa:** comparar los vectores directamente, sobre el mismo audio.
+
+| | |
+|---|---|
+| Componentes idénticas | **0 de 256** |
+| Diferencia máxima por componente | 7,67 × 10⁻² |
+| Coseno `fp32` ↔ `q8` | **0,994944** |
+
+O sea: el dtype **sí** se aplica y los embeddings **sí** cambian. Lo que pasa es que mueven
+el ángulo unos 0,005, y la meseta del umbral tiene 0,15 de ancho — treinta veces más. Por eso
+ninguna decisión de agrupamiento llega a cambiar.
+
+**Lo que esto no dice:** que `q8` sea inofensivo en general. Dice que sobre estos cuatro
+ítems, con estas voces, ninguna asignación cambió. Un audio donde dos hablantes caigan cerca
+del umbral sí podría dar vuelta con 0,005 de diferencia; lo que la medición sostiene es que
+eso no pasa en el material medido, no que no pueda pasar.

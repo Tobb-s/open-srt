@@ -9,7 +9,13 @@ import { Estimator, describeEstimate, WINDOW_SEC } from '@/lib/asr/estimate';
 import { learnedRtf, recordRtf, sampleCount } from '@/lib/asr/learned';
 import { decodeToMono16k } from '@/lib/audio/decode';
 import type { TimedText } from '@/lib/vad/align';
-import { SessionStore, newSessionId, type StoredSession } from '@/lib/store/session';
+import {
+  SessionStore,
+  fileKeyOf,
+  newSessionId,
+  type StoredRun,
+  type StoredSession,
+} from '@/lib/store/session';
 import { defaultSpeakerName } from '@/lib/diar/diarize';
 import { dict, humanDuration, humanRange, type Lang } from '@/lib/i18n';
 import Editor from './Editor';
@@ -26,6 +32,8 @@ type Phase =
   | 'error';
 
 interface LoadedFile {
+  /** Identifica el archivo entre visitas, para poder reconocer uno empezado. */
+  key: string;
   name: string;
   samples: Float32Array;
   durationSec: number;
@@ -65,6 +73,8 @@ export default function Transcribe({ lang }: { lang: Lang }) {
   const [dragging, setDragging] = useState(false);
   // Sesión guardada de una visita anterior. No se abre sola: se ofrece.
   const [pendiente, setPendiente] = useState<StoredSession | null>(null);
+  /** Una corrida de este mismo archivo que quedó a medias. */
+  const [corrida, setCorrida] = useState<StoredRun | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   // Idioma del audio, que NO es necesariamente el de la interfaz: alguien en /es puede
   // transcribir una reunión en inglés. Por eso es un control aparte.
@@ -166,7 +176,18 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       try {
         const bytes = await f.arrayBuffer();
         const audio = await decodeToMono16k(bytes);
-        setFile({ name: f.name, samples: audio.samples, durationSec: audio.durationSec, blob: f });
+        const key = fileKeyOf(f);
+        setFile({
+          key,
+          name: f.name,
+          samples: audio.samples,
+          durationSec: audio.durationSec,
+          blob: f,
+        });
+        // ¿Este archivo ya se había empezado? Se ofrece retomar, no se retoma solo: puede
+        // haberlo interrumpido a propósito.
+        const previa = await storeRef.current?.loadRun(key).catch(() => null);
+        setCorrida(previa && previa.doneBlocks < previa.blocks.length ? previa : null);
         setPhase('ready');
       } catch {
         setError(t.errors.decode);
@@ -176,7 +197,8 @@ export default function Transcribe({ lang }: { lang: Lang }) {
     [t],
   );
 
-  const run = useCallback(async () => {
+  const run = useCallback(
+    async (retomar: StoredRun | null = null) => {
     if (!file || !profile) return;
     setError(null);
     setPartial('');
@@ -214,10 +236,50 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       estimator.start();
       let calibrated = false;
 
+      // El avance se guarda bloque a bloque. Se acumula acá y no adentro del motor porque el
+      // motor no sabe de IndexedDB, y tampoco tiene por qué.
+      let acumulados: TimedText[] = [...(retomar?.segments ?? [])];
+      let bloques: StoredRun['blocks'] = retomar?.blocks ?? [];
+
       const out = await engine.transcribeTimed(file.samples, file.durationSec, {
         language: audioLang === 'auto' ? undefined : audioLang,
         diarize: separarHablantes,
         onDiarizeProgress: setAvanceHablantes,
+        resume: retomar
+          ? {
+              doneBlocks: retomar.doneBlocks,
+              segments: retomar.segments,
+              speechSec: retomar.speechSec,
+              speechSegments: retomar.blocks.flatMap((b) => b.segments),
+            }
+          : undefined,
+        onBlocks: (bs) => {
+          bloques = bs.map((b) => ({
+            startSec: b.startSec,
+            endSec: b.endSec,
+            segments: b.segments.map((x) => ({ startSec: x.startSec, endSec: x.endSec })),
+            speechSec: b.speechSec,
+          }));
+        },
+        onBlockDone: (p) => {
+          acumulados = [...acumulados, ...p.segments];
+          void storeRef.current
+            ?.saveRun({
+              fileKey: file.key,
+              fileName: file.name,
+              durationSec: file.durationSec,
+              updatedAt: Date.now(),
+              blocks: bloques,
+              doneBlocks: p.index + 1,
+              segments: acumulados,
+              speechSec: p.speechSec,
+              language: audioLang === 'auto' ? undefined : audioLang,
+            })
+            .catch(() => {
+              // Que no se pueda guardar no detiene nada: se pierde poder retomar, no el
+              // trabajo en curso.
+            });
+        },
         onPhase: (p) => {
           setPhase(p);
           // El detector y el modelo miden segundos distintos; arrancar de cero al pasar de
@@ -245,7 +307,10 @@ export default function Transcribe({ lang }: { lang: Lang }) {
 
       // Acá sí se sabe todo: cuánto audio era y cuánto tardó. Ese RTF alimenta la
       // estimación del próximo archivo, que ya no va a ser prestada.
-      recordRtf(profile.key, out.inferMs / 1000 / file.durationSec, file.durationSec);
+      // Por segundo de **habla**, no de archivo: desde E2 sólo se transcribe lo que el
+      // detector marca como voz, así que dividir por la duración del archivo mezclaría una
+      // propiedad del equipo con el porcentaje de silencio que traiga cada audio.
+      recordRtf(profile.key, out.inferMs / 1000 / out.speechSec, out.speechSec);
 
       // El modelo devuelve `0`, `1`, `2`. El nombre que ve la gente se pone aca, no en el
       // modelo: numerar desde 1 es cosa de la interfaz.
@@ -298,6 +363,9 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         editedInitially: new Set(),
         inferMs: out.inferMs,
       });
+      // Terminó: la corrida a medias ya no sirve para nada y ocuparía lugar.
+      void storeRef.current?.deleteRun(file.key).catch(() => {});
+      setCorrida(null);
       setAviso(aviso);
       setPhase('done');
     } catch (err) {
@@ -587,6 +655,12 @@ export default function Transcribe({ lang }: { lang: Lang }) {
                 : t.file.estimateApprox}
             </span>
           </p>
+          {/*
+            Por qué es un techo. Sin esta línea el número de arriba parece una predicción, y
+            con un audio con pausas se equivoca por casi el doble — medido con un video de
+            30 minutos que terminó en 7 min 40 s contra los 13 que decía.
+          */}
+          <p className="text-xs text-neutral-500">{t.file.estimateCeiling}</p>
           {file.durationSec > 1800 && (
             <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
               {t.file.tooLong}
@@ -628,9 +702,34 @@ export default function Transcribe({ lang }: { lang: Lang }) {
             </label>
           </div>
 
+          {corrida && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm dark:border-blue-900 dark:bg-blue-950/30">
+              <p className="flex-1">
+                {t.resume.offer(
+                  Math.round((corrida.doneBlocks / Math.max(1, corrida.blocks.length)) * 100),
+                )}
+              </p>
+              <button
+                onClick={() => void run(corrida)}
+                className="rounded-full bg-blue-600 px-4 py-1.5 font-medium text-white"
+              >
+                {t.resume.button}
+              </button>
+              <button
+                onClick={() => {
+                  void storeRef.current?.deleteRun(file.key).catch(() => {});
+                  setCorrida(null);
+                }}
+                className="rounded-full px-3 py-1.5 underline underline-offset-2"
+              >
+                {t.resume.discard}
+              </button>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-1">
             <button
-              onClick={run}
+              onClick={() => void run(null)}
               className="rounded-full bg-blue-600 px-6 py-2.5 font-medium text-white"
             >
               {t.run.start}
@@ -688,6 +787,9 @@ export default function Transcribe({ lang }: { lang: Lang }) {
             <p className="max-h-40 overflow-y-auto rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400">
               {partial}
             </p>
+          )}
+          {phase === 'transcribing' && (
+            <p className="text-xs text-neutral-500">{t.resume.saving}</p>
           )}
         </section>
       )}

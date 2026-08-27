@@ -177,13 +177,6 @@ MUTANTS = [
         "el calentamiento seguiría dominando la estimación",
     ),
     (
-        "el RTF aprendido acepta audio demasiado corto",
-        LEARN,
-        "  if (audioSec < 30) return;",
-        "  if (false) return;",
-        "un clip de 2 s contaminaría las estimaciones siguientes",
-    ),
-    (
         "el progreso deja de acumular ventanas",
         TRANS,
         "      if (t < lastTime) windowIndex++;",
@@ -343,8 +336,8 @@ MUTANTS = [
     (
         "una correccion no queda marcada como editada",
         STORE,
-        "store.put({ ...actual, text, edited: true });",
-        "store.put({ ...actual, text, edited: false });",
+        "      edited: true,\n    });",
+        "      edited: false,\n    });",
         "no se distinguiria lo corregido a mano de lo automatico",
     ),
     (
@@ -480,8 +473,8 @@ MUTANTS = [
     (
         'la hora del documento vuelve a traer milisegundos',
         DOCM,
-        "    rows.push({ time: formatTime(s.startSec, '.').slice(0, 8), text: texto });",
-        "    rows.push({ time: formatTime(s.startSec, '.'), text: texto });",
+        "      time: formatTime(s.startSec, '.').slice(0, 8),",
+        "      time: formatTime(s.startSec, '.'),",
         'ruido en un documento para leer',
     ),
     (
@@ -612,6 +605,42 @@ MUTANTS = [
         '    if (t.speaker) lineas.push(`${t.speaker}: ${texto}`);',
         'la pagina se llena de «Martin:» y el ojo deja de verlo',
     ),
+    # ---- E5: reanudar una transcripcion ----
+    (
+        'reanudar vuelve a transcribir los bloques ya hechos',
+        TRANS,
+        '    if (i < desde) continue;',
+        '    if (false) continue;',
+        'se repetirian los tramos y el texto saldria duplicado',
+    ),
+    (
+        'reanudar tira lo que ya estaba hecho',
+        TRANS,
+        '  const salida: TimedText[] = [...(opts.resumeFrom?.segments ?? [])];',
+        '  const salida: TimedText[] = [];',
+        'faltaria la primera mitad de la transcripcion',
+    ),
+    (
+        'reanudar pierde el habla ya contabilizada',
+        TRANS,
+        '  let speechSec = opts.resumeFrom?.speechSec ?? 0;',
+        '  let speechSec = 0;',
+        'la cobertura daria un aviso de omision falso',
+    ),
+    (
+        'el avance se anuncia antes de guardarlo',
+        TRANS,
+        '    await opts.onBlockDone?.({ index: i, segments: delBloque, speechSec });',
+        '    void opts.onBlockDone?.({ index: i, segments: delBloque, speechSec });',
+        'la barra diria que el bloque esta listo antes de que quede guardado',
+    ),
+    (
+        'el RTF aprendido vuelve a medirse por segundo de archivo',
+        LEARN,
+        '  if (speechSec < 30) return;',
+        '  if (false) return;',
+        'un clip de dos segundos contaminaria las estimaciones siguientes',
+    ),
 ]
 
 
@@ -645,6 +674,21 @@ def main() -> int:
         return 2
     if filtros:
         print(f"Filtrando por {filtros}: {len(seleccion)} de {len(MUTANTS)} mutantes\n")
+
+    # Antes de correr nada: que cada mutante enganche donde dice. Un patron que ya no existe
+    # —porque el codigo de alrededor cambio— se reportaba recien al llegarle el turno, media
+    # hora despues, y como si fuera un sobreviviente. Esto lo dice en un segundo.
+    huerfanos = [
+        (nombre, ruta.name)
+        for nombre, ruta, original, _, _ in seleccion
+        if not ruta.exists() or original not in ruta.read_text(encoding="utf-8")
+    ]
+    if huerfanos:
+        print("Hay mutantes que ya no enganchan con el codigo:")
+        for nombre, archivo in huerfanos:
+            print(f"  - {nombre}  ({archivo})")
+        print("Actualizar el patron o borrar el mutante antes de seguir.")
+        return 2
 
     print("Comprobando que la suite pasa en limpio…")
     ok, _ = run_suite()

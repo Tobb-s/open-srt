@@ -45,6 +45,18 @@ const MIN_TRAMO_SEC = 0.6;
 const COLLAR_SEC = 0.25;
 const UMBRALES = [0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8];
 
+/**
+ * Con qué precisión corre el modelo de embeddings.
+ *
+ * Se puede cambiar por entorno —`OPENSRT_DIAR_DTYPE=q8 npm test`— porque **la medición hay
+ * que poder repetirla con el dtype que use el producto**. El producto lleva `q8` por tamaño,
+ * y la regla que dejó E0 es que un cambio de dtype exige volver a medir, nunca «probar si
+ * anda»: las combinaciones rotas cargan sin error y devuelven basura con aplomo.
+ *
+ * El valor por defecto es `fp32` para que la corrida de referencia siga siendo la misma.
+ */
+const DTYPE = (process.env.OPENSRT_DIAR_DTYPE ?? 'fp32') as 'fp32' | 'q8' | 'fp16';
+
 interface Preparado {
   id: string;
   turns: Turn[];
@@ -111,7 +123,7 @@ beforeAll(async () => {
   try {
     const { AutoModel, AutoProcessor } = await import('@huggingface/transformers');
     const proc = await AutoProcessor.from_pretrained(MODELO);
-    const modelo = await AutoModel.from_pretrained(MODELO, { dtype: 'fp32', device: 'cpu' });
+    const modelo = await AutoModel.from_pretrained(MODELO, { dtype: DTYPE, device: 'cpu' });
 
     const cargar = async (linea: string, dir: string, destino: Preparado[]) => {
       const datos = JSON.parse(readFileSync(linea, 'utf8')) as {

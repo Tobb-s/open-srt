@@ -67,3 +67,6 @@ __pycache__/
 /public/corpus-holdout/*.wav
 # El modelo de embeddings, bajado para inspeccionarlo.
 /.spk-tmp/
+
+# Material de prueba pesado, temporal.
+/public/tmp-*

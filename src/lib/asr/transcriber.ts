@@ -71,6 +71,37 @@ export interface SegmentedOptions {
   language?: string;
   onProgress?: (p: SegmentedProgress) => void;
   signal?: AbortSignal;
+
+  /**
+   * Desde qué bloque arrancar, y con qué traía hecho.
+   *
+   * Es lo que permite **reanudar**: en un archivo de dos horas, perder todo por cerrar la
+   * pestaña sin querer es inaceptable, y hasta ahora sólo se guardaba el resultado terminado.
+   *
+   * Los bloques tienen que ser **los mismos** que la vez anterior, o los tiempos no van a
+   * corresponder. Por eso quien reanuda guarda los bloques junto con lo transcrito y los
+   * vuelve a pasar tal cual, en vez de recalcularlos con el detector.
+   */
+  resumeFrom?: {
+    /** Cuántos bloques del principio ya están hechos. */
+    doneBlocks: number;
+    /** Lo que produjeron, en orden. */
+    segments: readonly TimedText[];
+    /** Segundos de habla que ya se contabilizaron, para que la cobertura siga siendo válida. */
+    speechSec: number;
+  };
+
+  /**
+   * Se llama al terminar **cada** bloque, con lo que ese bloque produjo.
+   *
+   * Existe para poder guardar el avance en el momento. Que el guardado sea del que llama y no
+   * de acá es a propósito: este módulo no sabe de IndexedDB, y tampoco tiene por qué.
+   */
+  onBlockDone?: (p: {
+    index: number;
+    segments: readonly TimedText[];
+    speechSec: number;
+  }) => void | Promise<void>;
 }
 
 export interface LoadOptions {
@@ -200,11 +231,15 @@ export async function transcribeBlocks(
   call: ModelCall,
 ): Promise<SegmentedResult> {
   const t0 = performance.now();
-  const salida: TimedText[] = [];
-  let acumulado = '';
-  let speechSec = 0;
+  // Lo que ya estaba hecho arranca adentro del resultado: los tramos que vuelven tienen que
+  // ser la transcripción entera, no sólo la parte nueva.
+  const salida: TimedText[] = [...(opts.resumeFrom?.segments ?? [])];
+  let acumulado = salida.map((s) => s.text).filter(Boolean).join(' ');
+  let speechSec = opts.resumeFrom?.speechSec ?? 0;
+  const desde = opts.resumeFrom?.doneBlocks ?? 0;
 
   for (const [i, block] of opts.blocks.entries()) {
+    if (i < desde) continue;
     if (opts.signal?.aborted) throw new Error('Cancelado');
 
     const trozo = sliceSamples(opts.audio, block.startSec, block.endSec);
@@ -220,9 +255,14 @@ export async function transcribeBlocks(
     const texto = ((out as { text?: string }).text ?? '').trim();
 
     // El detector dice dónde está cada tramo; el modelo, qué se dijo en el bloque.
-    salida.push(...alignBlockText(block.segments, texto));
+    const delBloque = alignBlockText(block.segments, texto);
+    salida.push(...delBloque);
     speechSec += block.speechSec;
     acumulado = acumulado ? `${acumulado} ${texto}` : texto;
+
+    // Guardar antes de avisar del avance: si el guardado falla, que la barra no haya dicho
+    // ya que ese bloque está listo.
+    await opts.onBlockDone?.({ index: i, segments: delBloque, speechSec });
 
     opts.onProgress?.({
       done: i + 1,
