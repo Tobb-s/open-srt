@@ -641,6 +641,28 @@ MUTANTS = [
         '  if (false) return;',
         'un clip de dos segundos contaminaria las estimaciones siguientes',
     ),
+    # ---- E5: el avance se guarda de a un bloque ----
+    (
+        'la cabecera y el bloque dejan de ir en la misma transaccion',
+        STORE,
+        "    const tx = this.db.transaction(['runs', 'runChunks'], 'readwrite');\n    tx.objectStore('runs').put(run);\n    tx.objectStore('runChunks').put(chunk);",
+        "    const tx = this.db.transaction(['runs', 'runChunks'], 'readwrite');\n    tx.objectStore('runs').put(run);",
+        'quedaria una cabecera diciendo que hay un bloque que no se guardo',
+    ),
+    (
+        'se leen bloques mas alla de lo que dice la cabecera',
+        STORE,
+        '      .filter((c) => c.blockIndex < doneBlocks)',
+        '      .filter(() => true)',
+        'un bloque a medio confirmar entraria dos veces al retomar',
+    ),
+    (
+        'los bloques guardados se leen sin ordenar',
+        STORE,
+        '      .sort((a, b) => a.blockIndex - b.blockIndex)',
+        '      .sort((a, b) => b.blockIndex - a.blockIndex)',
+        'el texto saldria al reves al retomar',
+    ),
 ]
 
 

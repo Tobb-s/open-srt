@@ -207,13 +207,20 @@ describe('el almacén de corridas', () => {
       speechSec: b.speechSec,
     })),
     doneBlocks,
-    segments: [{ startSec: 0, endSec: 8, text: 'lo que iba' }],
     speechSec: 16,
+  });
+
+  /** Un bloque guardado, con lo que produjo. */
+  const trozo = (fileKey: string, blockIndex: number) => ({
+    fileKey,
+    blockIndex,
+    segments: [{ startSec: blockIndex * 10, endSec: blockIndex * 10 + 8, text: `bloque ${blockIndex}` }],
   });
 
   it('guarda y recupera el avance', async () => {
     const s = await SessionStore.open(factory);
-    await s.saveRun(corrida('a|1|2'));
+    await s.saveRunProgress(corrida('a|1|2', 1), trozo('a|1|2', 0));
+    await s.saveRunProgress(corrida('a|1|2', 2), trozo('a|1|2', 1));
     s.close();
 
     // Cerrar y volver a abrir, que es lo que hace el navegador al recargar.
@@ -221,8 +228,49 @@ describe('el almacén de corridas', () => {
     const r = await b.loadRun('a|1|2');
     expect(r?.doneBlocks).toBe(2);
     expect(r?.blocks).toHaveLength(5);
-    expect(r?.segments[0].text).toBe('lo que iba');
+    expect((await b.loadRunSegments('a|1|2', 2)).map((x) => x.text)).toEqual([
+      'bloque 0',
+      'bloque 1',
+    ]);
     b.close();
+  });
+
+  it('cada bloque escribe SÓLO lo suyo', async () => {
+    // La primera versión guardaba la lista entera de tramos en cada bloque. Con 65 no se
+    // nota; con los ~1300 de un archivo de dos horas es cuadrático. Este test mira lo que se
+    // escribe, no lo que se lee: es la única forma de ver la diferencia.
+    const s = await SessionStore.open(factory);
+    const proto = (globalThis as unknown as { IDBObjectStore: typeof IDBObjectStore })
+      .IDBObjectStore.prototype;
+    const original = proto.put;
+    const escrituras: Array<{ tabla: string; tramos: number }> = [];
+    proto.put = function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore['put']>) {
+      const v = args[0] as { segments?: unknown[] };
+      escrituras.push({ tabla: this.name, tramos: Array.isArray(v?.segments) ? v.segments.length : 0 });
+      return original.apply(this, args);
+    };
+    try {
+      for (let i = 0; i < 5; i++) await s.saveRunProgress(corrida('a|1|2', i + 1), trozo('a|1|2', i));
+    } finally {
+      proto.put = original;
+    }
+    // Cinco bloques: cinco escrituras de tramos, de un tramo cada una. Con la versión vieja
+    // habrían sido 1+2+3+4+5.
+    const deTramos = escrituras.filter((e) => e.tabla === 'runChunks');
+    expect(deTramos).toHaveLength(5);
+    expect(deTramos.map((e) => e.tramos)).toEqual([1, 1, 1, 1, 1]);
+    s.close();
+  });
+
+  it('descarta un bloque que quedó más allá de la cabecera', async () => {
+    // Si el navegador muere entre escribir el bloque y actualizar la cabecera, sobra uno.
+    // Meterlo dos veces sería peor que rehacerlo.
+    const s = await SessionStore.open(factory);
+    await s.saveRunProgress(corrida('a|1|2', 2), trozo('a|1|2', 0));
+    await s.saveRunProgress(corrida('a|1|2', 2), trozo('a|1|2', 1));
+    await s.saveRunProgress(corrida('a|1|2', 2), trozo('a|1|2', 2));
+    expect(await s.loadRunSegments('a|1|2', 2)).toHaveLength(2);
+    s.close();
   });
 
   it('guarda los bloques, que son lo que hace posible retomar', async () => {
@@ -259,9 +307,10 @@ describe('el almacén de corridas', () => {
     // Una transcripción a medias es contenido del usuario igual que una terminada. Dejarla
     // ahí después de que pidió borrar todo sería incumplir lo que dice el botón.
     const s = await SessionStore.open(factory);
-    await s.saveRun(corrida('a|1|2'));
+    await s.saveRunProgress(corrida('a|1|2'), trozo('a|1|2', 0));
     await s.clear();
     expect(await s.listRuns()).toEqual([]);
+    expect(await s.loadRunSegments('a|1|2', 99)).toEqual([]);
     s.close();
   });
 
@@ -288,9 +337,10 @@ describe('el almacén de corridas', () => {
 
     const s = await SessionStore.open(factory);
     expect((await s.list()).map((x) => x.fileName)).toContain('de antes.mp3');
-    // Y la tabla nueva existe y funciona.
-    await s.saveRun(corrida('nuevo|1|2'));
+    // Y las tablas nuevas existen y funcionan.
+    await s.saveRunProgress(corrida('nuevo|1|2', 1), trozo('nuevo|1|2', 0));
     expect(await s.loadRun('nuevo|1|2')).not.toBeNull();
+    expect(await s.loadRunSegments('nuevo|1|2', 1)).toHaveLength(1);
     s.close();
   });
 });

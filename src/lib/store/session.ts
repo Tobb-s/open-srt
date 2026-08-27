@@ -26,7 +26,11 @@ import type { TimedText } from '../vad/align';
  */
 
 export const DB_NAME = 'opensrt';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
+//                          ^ 2 salió desplegada con la tabla `runs`. Agregar `runChunks`
+//                            exige subir otra vez: un navegador que ya abrió la 2 no vuelve
+//                            a entrar en `onupgradeneeded` con el mismo número, y la tabla
+//                            nueva no existiría nunca. La subida sigue siendo aditiva.
 
 /**
  * Cuántas corridas a medio hacer se conservan.
@@ -108,10 +112,25 @@ export interface StoredRun {
   blocks: Array<{ startSec: number; endSec: number; segments: Array<{ startSec: number; endSec: number }>; speechSec: number }>;
   /** Cuántos bloques del principio están hechos. */
   doneBlocks: number;
-  /** Lo que produjeron, en orden. */
-  segments: Array<{ startSec: number; endSec: number; text: string }>;
   speechSec: number;
   language?: string;
+}
+
+/**
+ * Lo que produjo **un** bloque.
+ *
+ * Vive aparte del registro de la corrida a propósito. La primera versión guardaba la lista
+ * entera de tramos adentro del registro y la reescribía en cada bloque: con los 65 de media
+ * hora no se nota, pero un archivo de dos horas tiene unos 1300, y reescribir una lista que
+ * crece en cada paso es cuadrático — cerca de un millón de escrituras de tramo para guardar
+ * mil seiscientos.
+ *
+ * Es exactamente el error que E2 evitó con el audio, cometido de nuevo en el código nuevo.
+ */
+export interface StoredRunChunk {
+  fileKey: string;
+  blockIndex: number;
+  segments: Array<{ startSec: number; endSec: number; text: string }>;
 }
 
 export interface LoadedSession {
@@ -133,6 +152,11 @@ function finished(tx: IDBTransaction): Promise<void> {
     tx.onerror = () => reject(tx.error ?? new Error('Transacción fallida'));
     tx.onabort = () => reject(tx.error ?? new Error('Transacción abortada'));
   });
+}
+
+/** Rango que cubre todos los bloques guardados de una corrida. */
+function chunkRange(fileKey: string): IDBKeyRange {
+  return IDBKeyRange.bound([fileKey, -Infinity], [fileKey, Infinity]);
 }
 
 /** Rango que cubre todos los tramos de una sesión, con la clave compuesta [id, índice]. */
@@ -189,6 +213,11 @@ export class SessionStore {
         // más rápida de perder transcripciones ajenas por un error propio.
         if (!db.objectStoreNames.contains('runs')) {
           db.createObjectStore('runs', { keyPath: 'fileKey' });
+        }
+        if (!db.objectStoreNames.contains('runChunks')) {
+          // Clave compuesta: identifica el bloque y además los deja ordenados por índice
+          // dentro de cada corrida, que es como se leen para rearmar el avance.
+          db.createObjectStore('runChunks', { keyPath: ['fileKey', 'blockIndex'] });
         }
       };
       req.onsuccess = () => resolve(new SessionStore(req.result));
@@ -323,7 +352,22 @@ export class SessionStore {
    * Corridas a medio hacer
    * ---------------------------------------------------------------- */
 
-  /** Guarda o pisa el avance de una corrida. */
+  /**
+   * Guarda el avance: la cabecera de la corrida **y sólo el bloque que acaba de terminar**.
+   *
+   * Las dos cosas van en la misma transacción para que no pueda quedar una cabecera que diga
+   * que hay diez bloques hechos con nueve guardados. Si eso pasara, al retomar faltaría un
+   * bloque y no fallaría nada: saldría una transcripción con un agujero.
+   */
+  async saveRunProgress(run: StoredRun, chunk: StoredRunChunk): Promise<void> {
+    const tx = this.db.transaction(['runs', 'runChunks'], 'readwrite');
+    tx.objectStore('runs').put(run);
+    tx.objectStore('runChunks').put(chunk);
+    await finished(tx);
+    await this.pruneRuns();
+  }
+
+  /** Sólo la cabecera. Para cuando todavía no hay ningún bloque terminado. */
   async saveRun(run: StoredRun): Promise<void> {
     const tx = this.db.transaction('runs', 'readwrite');
     tx.objectStore('runs').put(run);
@@ -336,9 +380,28 @@ export class SessionStore {
     return (await promisify<StoredRun | undefined>(tx.objectStore('runs').get(fileKey))) ?? null;
   }
 
+  /**
+   * Rearma lo transcrito hasta ahora, en orden.
+   *
+   * Se descarta lo que esté más allá de `doneBlocks`: si el navegador murió entre escribir el
+   * bloque y actualizar la cabecera, sobra un bloque, y es preferible rehacerlo que meterlo
+   * dos veces.
+   */
+  async loadRunSegments(fileKey: string, doneBlocks: number): Promise<StoredRunChunk['segments']> {
+    const tx = this.db.transaction('runChunks', 'readonly');
+    const trozos = await promisify<StoredRunChunk[]>(
+      tx.objectStore('runChunks').getAll(chunkRange(fileKey)),
+    );
+    return trozos
+      .filter((c) => c.blockIndex < doneBlocks)
+      .sort((a, b) => a.blockIndex - b.blockIndex)
+      .flatMap((c) => c.segments);
+  }
+
   async deleteRun(fileKey: string): Promise<void> {
-    const tx = this.db.transaction('runs', 'readwrite');
+    const tx = this.db.transaction(['runs', 'runChunks'], 'readwrite');
     tx.objectStore('runs').delete(fileKey);
+    tx.objectStore('runChunks').delete(chunkRange(fileKey));
     await finished(tx);
   }
 
@@ -356,13 +419,17 @@ export class SessionStore {
 
   /** Borra todo. Es la salida para quien no quiere dejar su audio en el disco. */
   async clear(): Promise<void> {
-    const tx = this.db.transaction(['sessions', 'segments', 'audio', 'runs'], 'readwrite');
+    const tx = this.db.transaction(
+      ['sessions', 'segments', 'audio', 'runs', 'runChunks'],
+      'readwrite',
+    );
     tx.objectStore('sessions').clear();
     tx.objectStore('segments').clear();
     tx.objectStore('audio').clear();
     // Las corridas a medio hacer también: «borrar lo guardado» tiene que borrar todo, y una
     // transcripción a medias es contenido del usuario igual que una terminada.
     tx.objectStore('runs').clear();
+    tx.objectStore('runChunks').clear();
     await finished(tx);
   }
 

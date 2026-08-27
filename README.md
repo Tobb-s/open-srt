@@ -91,7 +91,7 @@ funciona igual, con un modelo más chico.
 ## Desarrollo
 
 ```bash
-npm test             # 433 tests
+npm test             # 435 tests
 npm run mutation     # rompe el código a propósito y confirma que los tests lo atrapan
                      # (acepta un filtro: `npm run mutation -- csv.ts`)
 npm run corpus:build # regenera el corpus de medición desde OpenSLR

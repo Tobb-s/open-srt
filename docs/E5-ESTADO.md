@@ -49,6 +49,26 @@ Por eso el test central compara las dos corridas tramo por tramo, y hay un **con
 demuestra que esa comparación sabe ver una diferencia: se retoma diciendo que hay un bloque
 más hecho del que hay, y el test tiene que notarlo.
 
+### El mismo error que E2 había evitado, cometido de nuevo
+
+La primera versión guardaba **la lista entera de tramos** dentro del registro de la corrida y
+la reescribía en cada bloque. Con los 65 bloques de media hora no se nota. Con los ~1300 de un
+archivo de dos horas es cuadrático: cerca de **un millón de escrituras de tramo** para guardar
+mil seiscientos.
+
+Es exactamente el error que E2 evitó con el audio —«el audio una vez, las ediciones
+incrementales»— enunciado como principio en ese módulo y violado en el código nuevo dos etapas
+después.
+
+Ahora cada bloque escribe **sólo lo suyo**, en su propia tabla. La cabecera y el bloque van en
+la **misma transacción**: si no, podría quedar una cabecera diciendo que hay diez bloques
+hechos con nueve guardados, y al retomar faltaría uno sin que nada fallara. Y al leer se
+descarta lo que esté más allá de lo que la cabecera confirma — si el navegador muere entre una
+escritura y la otra, sobra un bloque, y es preferible rehacerlo que meterlo dos veces.
+
+Medido en el navegador con el archivo de 30 minutos: en el bloque 40, el trozo más grande
+guardado tiene **8 tramos**. Con la versión anterior habría escrito unos 250.
+
 ### Comprobado con una interrupción de verdad
 
 Sobre el mp4 de 30 minutos, cortando la pestaña en el **bloque 17 de 65** y volviendo a elegir

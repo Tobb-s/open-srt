@@ -238,7 +238,11 @@ export default function Transcribe({ lang }: { lang: Lang }) {
 
       // El avance se guarda bloque a bloque. Se acumula acá y no adentro del motor porque el
       // motor no sabe de IndexedDB, y tampoco tiene por qué.
-      let acumulados: TimedText[] = [...(retomar?.segments ?? [])];
+      // Los tramos ya hechos viven en su propia tabla; la cabecera sólo dice cuántos bloques.
+      const yaHechos: TimedText[] = retomar
+        ? await storeRef.current!.loadRunSegments(retomar.fileKey, retomar.doneBlocks)
+        : [];
+      let acumulados: TimedText[] = [...yaHechos];
       let bloques: StoredRun['blocks'] = retomar?.blocks ?? [];
 
       const out = await engine.transcribeTimed(file.samples, file.durationSec, {
@@ -248,7 +252,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         resume: retomar
           ? {
               doneBlocks: retomar.doneBlocks,
-              segments: retomar.segments,
+              segments: yaHechos,
               speechSec: retomar.speechSec,
               speechSegments: retomar.blocks.flatMap((b) => b.segments),
             }
@@ -263,18 +267,23 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         },
         onBlockDone: (p) => {
           acumulados = [...acumulados, ...p.segments];
+          // Se guarda **sólo este bloque**, no la lista entera. Reescribirla en cada paso es
+          // cuadrático: en un archivo de dos horas son unos 1300 bloques y casi un millón de
+          // escrituras de tramo para guardar mil seiscientos.
           void storeRef.current
-            ?.saveRun({
-              fileKey: file.key,
-              fileName: file.name,
-              durationSec: file.durationSec,
-              updatedAt: Date.now(),
-              blocks: bloques,
-              doneBlocks: p.index + 1,
-              segments: acumulados,
-              speechSec: p.speechSec,
-              language: audioLang === 'auto' ? undefined : audioLang,
-            })
+            ?.saveRunProgress(
+              {
+                fileKey: file.key,
+                fileName: file.name,
+                durationSec: file.durationSec,
+                updatedAt: Date.now(),
+                blocks: bloques,
+                doneBlocks: p.index + 1,
+                speechSec: p.speechSec,
+                language: audioLang === 'auto' ? undefined : audioLang,
+              },
+              { fileKey: file.key, blockIndex: p.index, segments: [...p.segments] },
+            )
             .catch(() => {
               // Que no se pueda guardar no detiene nada: se pierde poder retomar, no el
               // trabajo en curso.
