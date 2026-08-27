@@ -1,6 +1,6 @@
 # E3 — estado
 
-Actualizado: 26 de agosto de 2026. **En curso.**
+Actualizado: 26 de agosto de 2026. **En curso** — falta la prueba con material real.
 
 **Objetivo de la etapa:** aceptar lo que la gente realmente tiene —un mp4 de una reunión, un
 mov del teléfono— y entregar en los formatos que realmente usa.
@@ -127,7 +127,78 @@ Otra vez, un instrumento mal calibrado dando números tranquilizadores.
   Sale con BOM porque sin ella Excel en Windows muestra `configuraciÃ³n`; y el tiempo
   legible va con punto y no con la coma del SRT, para no obligar a entrecomillar dos campos
   por una razón evitable.
-- DOCX y PDF: **pendientes**.
+
+- **DOCX y PDF**, con un modelo intermedio compartido (`document.ts`). Las dos bibliotecas no
+  se parecen en nada —una arma párrafos y deja que Word decida los cortes, la otra dibuja en
+  coordenadas— así que si cada exportador armara el documento por su cuenta, las dos salidas
+  se irían separando sin que nadie lo note. Lo que decide **qué dice** el documento está en un
+  solo lugar; cada adaptador decide sólo cómo se dibuja.
+
+  Lo interesante —cortar líneas midiéndolas con la fuente, y paginar sin partir un tramo— es
+  puro y se prueba con números, sin cargar `docx` ni `pdf-lib`. Las bibliotecas se importan
+  **al pedir el archivo**: son un mega y medio entre las dos y no tienen por qué pesar sobre
+  quien sólo quiere un `.srt`.
+
+### Lo que el plan daba por reutilizable y no lo era
+
+El plan anotaba aprovechar `textLayout.ts` de OpenPDF «para el flujo de texto». **No aplica:**
+ese módulo reconstruye párrafos a partir de las corridas de glifos que devuelve pdf.js — va de
+PDF a texto, la dirección contraria. Escribir un PDF exige medir con la fuente, que es lo que
+hace `wrapByMeasure`.
+
+### Una suposición sobre PDF que era falsa, y se midió
+
+La primera versión del saneador de texto partía de que las fuentes estándar de PDF no podían
+dibujar comillas tipográficas ni guion largo, y los reemplazaba por ASCII. **Comprobado contra
+pdf-lib, es falso:**
+
+| texto | resultado |
+|---|---|
+| `¿Qué año? ¡Sí! pingüino` | dibuja |
+| `dijo “hola”` · `texto —cortado—` · `y entonces…` · `«así»` | **dibuja** |
+| `中文` | `WinAnsi cannot encode "中" (0x4e2d)` |
+| emoji | `WinAnsi cannot encode` |
+
+WinAnsi cubre latin-1 **más** el bloque 0x80–0x9F, que es justamente donde viven `‘ ’ “ ” – — …`.
+Reemplazarlos habría dejado el PDF peor que el DOCX sin ninguna razón. Ahora se sanea sólo lo
+que de verdad no entra, y el test lo comprueba **contra pdf-lib**, con dos controles: que sin
+sanear efectivamente tira, y que lo que se decidió no tocar el dibujante lo acepta.
+
+Lo que sí falla, falla **tirando una excepción**: sin sanear, una transcripción con un emoji no
+genera PDF y el usuario ve un error sin explicación.
+
+### Verificado abriéndolos
+
+| | |
+|---|---|
+| DOCX en **Word** | abre; título, subtítulo, tabla de dos columnas sin bordes, horas en monoespaciada alineadas con la primera línea de cada tramo |
+| Acentos, ñ, `¿`, y `—y esto lo hablé con el equipo—` | intactos |
+| `01:01:01` pasada la hora | correcto |
+| PDF en **Adobe Acrobat** | abre; A4, 5 páginas en el documento largo, tramos continuos entre páginas |
+| Los tres botones en el navegador | producen archivo con la firma correcta: `PK` el DOCX, `%PDF-` el PDF, BOM el CSV |
+
+Abrir el PDF destapó un desperdicio que ningún test veía: el hueco del encabezado se reservaba
+en **todas** las páginas y quedaban cuatro centímetros de blanco arriba de cada una. `paginate`
+ahora recibe un alto propio para la primera página.
+
+### Un test más débil que su nombre, encontrado por la mutación
+
+El test se llamaba «no parte un tramo entre páginas» y decía cubrir la guarda que evita abrir
+una página vacía. **No la tocaba.** Quitar la guarda no rompía ninguno de los tres casos, y
+los tres daban exactamente el mismo resultado:
+
+| caso | con la guarda | sin ella |
+|---|---|---|
+| `[80, 40, 40]` | `[[0],[1,2]]` | igual |
+| `[50, 300, 40]` | `[[0],[1],[2]]` | igual |
+| **`[300, 40]`** | `[[0],[1]]` | **`[[],[0],[1]]`** |
+
+La guarda sólo importa cuando **el primer** tramo es más alto que la página: sin ella se emite
+una página vacía, o sea una hoja en blanco al principio del PDF. Todos los casos empezaban con
+un tramo que entraba, así que ninguno la ejercitaba.
+
+El código estaba bien; el test no. Se agregó el caso que faltaba y, sobre todo, la propiedad de
+fondo —ninguna página queda vacía— que tapa la clase entera y no sólo este agujero.
 
 ## Lo que falta para cerrar E3
 
@@ -137,7 +208,6 @@ Otra vez, un instrumento mal calibrado dando números tranquilizadores.
 - **Firefox leyendo el mp4** que grabó Chrome. Es el único dato que falta de la matriz de
   navegadores, y no bloquea la decisión: aunque falle, Firefox tiene WebCodecs con AAC.
 - `.mov` y `.mkv`: sin probar. `MediaRecorder` no los genera.
-- DOCX y PDF.
 - Safari: no hay forma de probarlo desde Windows.
 
 ## Una traba del entorno que costó media hora

@@ -92,6 +92,11 @@ export interface Dict {
      */
     downloadLabel: string;
     csvHint: string;
+    /** Encabezado del DOCX y del PDF, y su línea de contexto. */
+    docTitle: string;
+    docSubtitle: (file: string, duration: string, rows: number) => string;
+    /** Mientras se arma el archivo: `docx` y `pdf-lib` se cargan recién al pedirlos. */
+    building: string;
   };
   result: {
     title: string;
@@ -220,6 +225,9 @@ const es: Dict = {
     edited: 'editado',
     downloadLabel: 'Descargar',
     csvHint: 'CSV: una fila por tramo, con los tiempos en segundos y en formato legible.',
+    docTitle: 'Transcripción',
+    docSubtitle: (file, duration, rows) => `${file} · ${duration} · ${rows} tramos`,
+    building: 'Armando el archivo…',
   },
   result: {
     title: 'Transcripción',
@@ -357,6 +365,9 @@ const en: Dict = {
     edited: 'edited',
     downloadLabel: 'Download',
     csvHint: 'CSV: one row per segment, with times in seconds and in readable form.',
+    docTitle: 'Transcript',
+    docSubtitle: (file, duration, rows) => `${file} · ${duration} · ${rows} segments`,
+    building: 'Building the file…',
   },
   result: {
     title: 'Transcript',

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TimedText } from '@/lib/vad/align';
 import { toCues, toSrt, toVtt, toPlainText } from '@/lib/export/subtitles';
 import { toCsv } from '@/lib/export/csv';
+import { layoutTranscript } from '@/lib/export/document';
 import { dict, humanDuration, type Lang } from '@/lib/i18n';
 
 /**
@@ -63,6 +64,7 @@ export default function Editor({
   const audioRef = useRef<HTMLMediaElement>(null);
   const [activo, setActivo] = useState<number>(-1);
   const [editados, setEditados] = useState<ReadonlySet<number>>(editedInitially ?? new Set());
+  const [armando, setArmando] = useState<string | null>(null);
 
   // Resaltar el tramo que suena. Se recalcula en cada `timeupdate`, que el navegador
   // dispara unas cuatro veces por segundo: suficiente para seguir el audio y poco como
@@ -86,15 +88,42 @@ export default function Editor({
   }, []);
 
   const descargar = useCallback(
-    (contenido: string, extension: string, mime: string) => {
-      const blob = new Blob([contenido], { type: `${mime};charset=utf-8` });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${fileName.replace(/\.[^.]+$/, '')}.${extension}`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+    async (
+      generar: () => string | Promise<Blob>,
+      extension: string,
+      mime: string,
+    ) => {
+      // DOCX y PDF cargan su biblioteca al pedirla —cerca de un mega y medio entre las dos—,
+      // así que tardan lo suficiente como para que haya que avisar. Los otros cuatro son
+      // instantáneos y el aviso no llega a verse.
+      setArmando(extension);
+      try {
+        const salida = await generar();
+        const blob =
+          typeof salida === 'string'
+            ? new Blob([salida], { type: `${mime};charset=utf-8` })
+            : salida;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${fileName.replace(/\.[^.]+$/, '')}.${extension}`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } finally {
+        setArmando(null);
+      }
     },
     [fileName],
+  );
+
+  /** El modelo del documento, compartido por DOCX y PDF para que no se separen. */
+  const modelo = useCallback(
+    () =>
+      layoutTranscript(segments, {
+        fileName,
+        durationHuman: humanDuration(segments.at(-1)?.endSec ?? 0, lang),
+        labels: { title: t.editor.docTitle, subtitle: t.editor.docSubtitle },
+      }),
+    [segments, fileName, lang, t],
   );
 
   const conTexto = segments.filter((s) => s.text.trim());
@@ -207,17 +236,31 @@ export default function Editor({
             ['SRT', () => toSrt(toCues(segments)), 'srt', 'application/x-subrip'],
             ['VTT', () => toVtt(toCues(segments)), 'vtt', 'text/vtt'],
             ['CSV', () => toCsv(segments), 'csv', 'text/csv'],
+            [
+              'DOCX',
+              async () => (await import('@/lib/export/docx')).toDocxBlob(modelo()),
+              'docx',
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            ],
+            [
+              'PDF',
+              async () => (await import('@/lib/export/pdf')).toPdfBlob(modelo()),
+              'pdf',
+              'application/pdf',
+            ],
           ] as const
         ).map(([nombre, generar, ext, mime]) => (
           <button
             key={ext}
-            onClick={() => descargar(generar(), ext, mime)}
-            className="rounded-full border border-neutral-300 px-3.5 py-1.5 font-mono text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            disabled={armando !== null}
+            onClick={() => void descargar(generar, ext, mime)}
+            className="rounded-full border border-neutral-300 px-3.5 py-1.5 font-mono text-sm hover:bg-neutral-100 disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800"
           >
-            {nombre}
+            {armando === ext ? '…' : nombre}
           </button>
         ))}
       </div>
+      {armando && <p className="text-xs text-neutral-500">{t.editor.building}</p>}
       <p className="text-xs text-neutral-400">{t.editor.csvHint}</p>
     </section>
   );

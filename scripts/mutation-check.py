@@ -5,7 +5,16 @@ Rompe a propósito cada decisión que los tests dicen cubrir y confirma que la s
 falla. Un mutante que sobrevive significa que ese test no prueba lo que su nombre
 afirma — el problema que la revisión adversarial de OpenPDF encontró tres veces.
 
-Uso:  python scripts/mutation-check.py
+Uso:  python scripts/mutation-check.py            (todos)
+      python scripts/mutation-check.py csv video  (sólo los que mencionen eso)
+
+El filtro no es una comodidad: la suite completa tarda un minuto, así que los 58 mutantes
+son una hora larga. Validar seis mutantes nuevos con eso desalienta correrlo, y una prueba
+de mutación que no se corre no prueba nada. El filtro compara contra el nombre del mutante y
+contra el archivo que toca.
+
+**Ojo con interrumpirlo**: si el proceso muere entre que muta y restaura, el archivo queda
+mutado. Se recupera con `git checkout -- <archivo>`.
 """
 
 import subprocess
@@ -37,6 +46,8 @@ STORE = ROOT / "src" / "lib" / "store" / "session.ts"
 RUNTIME = ROOT / "src" / "lib" / "asr" / "runtime.ts"
 CSV = ROOT / "src" / "lib" / "export" / "csv.ts"
 PROBE = ROOT / "src" / "lib" / "video" / "probe.ts"
+DOCM = ROOT / "src" / "lib" / "export" / "document.ts"
+PDFX = ROOT / "src" / "lib" / "export" / "pdf.ts"
 
 # (nombre, archivo, texto original, texto mutado, qué debería atrapar)
 MUTANTS = [
@@ -453,6 +464,49 @@ MUTANTS = [
         '  if (false) return false;',
         'sin segundos de silencio no hay con que comparar',
     ),
+    # ---- E3: documentos (DOCX y PDF) ----
+    (
+        'el documento emite filas para tramos sin texto',
+        DOCM,
+        '    if (!texto) continue;',
+        '    if (false) continue;',
+        'una fila vacia con una hora al lado parece un error del documento',
+    ),
+    (
+        'la hora del documento vuelve a traer milisegundos',
+        DOCM,
+        "    rows.push({ time: formatTime(s.startSec, '.').slice(0, 8), text: texto });",
+        "    rows.push({ time: formatTime(s.startSec, '.'), text: texto });",
+        'ruido en un documento para leer',
+    ),
+    (
+        'el corte de linea del PDF ignora el ancho',
+        DOCM,
+        '    if (!actual || measure(candidata) <= maxWidth) actual = candidata;',
+        '    if (true) actual = candidata;',
+        'todo el texto en un solo renglon que se sale de la hoja',
+    ),
+    (
+        'la paginacion parte un tramo entre paginas',
+        DOCM,
+        '    if (alto + h > disponible && actual.length > 0) {',
+        '    if (alto + h > disponible) {',
+        'habria que dar vuelta la hoja para terminar una frase',
+    ),
+    (
+        'la primera pagina deja de ser mas corta que las demas',
+        DOCM,
+        '      disponible = usableHeight;',
+        '      disponible = firstPageHeight;',
+        'cuatro centimetros de blanco arriba de cada pagina',
+    ),
+    (
+        'el saneador del PDF acepta cualquier caracter',
+        PDFX,
+        '  return WINANSI_EXTRA.has(ch);',
+        '  return true;',
+        'pdf-lib tira con un emoji y no se genera archivo',
+    ),
 ]
 
 
@@ -476,6 +530,17 @@ def run_suite() -> tuple[bool, int]:
 
 
 def main() -> int:
+    filtros = [a.lower() for a in sys.argv[1:]]
+    seleccion = [
+        m for m in MUTANTS
+        if not filtros or any(f in m[0].lower() or f in m[1].name.lower() for f in filtros)
+    ]
+    if not seleccion:
+        print(f"Ningún mutante coincide con {filtros}")
+        return 2
+    if filtros:
+        print(f"Filtrando por {filtros}: {len(seleccion)} de {len(MUTANTS)} mutantes\n")
+
     print("Comprobando que la suite pasa en limpio…")
     ok, _ = run_suite()
     if not ok:
@@ -484,7 +549,7 @@ def main() -> int:
     print("  ok\n")
 
     survivors = []
-    for name, path, original, mutated, catches in MUTANTS:
+    for name, path, original, mutated, catches in seleccion:
         src = path.read_text(encoding="utf-8")
         if original not in src:
             print(f"[  ?  ] {name}")
@@ -513,7 +578,7 @@ def main() -> int:
             print(f"  - {s}")
         return 1
 
-    print(f"Los {len(MUTANTS)} mutantes murieron. Los tests prueban lo que dicen.")
+    print(f"Los {len(seleccion)} mutantes murieron. Los tests prueban lo que dicen.")
     return 0
 
 

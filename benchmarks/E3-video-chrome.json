@@ -49,7 +49,7 @@
       "mime": "video/mp4;codecs=avc1,mp4a.40.2",
       "generated": true,
       "blob": {},
-      "bytes": 101326,
+      "bytes": 101318,
       "decode": "ok",
       "durationSec": 5.93,
       "sampleRate": 48000,
@@ -68,7 +68,7 @@
       "mime": "video/webm;codecs=vp8,opus",
       "generated": true,
       "blob": {},
-      "bytes": 68758,
+      "bytes": 68757,
       "decode": "ok",
       "durationSec": 5.94,
       "sampleRate": 48000,
@@ -87,7 +87,7 @@
       "mime": "video/webm;codecs=vp9,opus",
       "generated": true,
       "blob": {},
-      "bytes": 75680,
+      "bytes": 75640,
       "decode": "ok",
       "durationSec": 5.94,
       "sampleRate": 48000,
@@ -106,7 +106,7 @@
   "samples": [
     {
       "file": "prueba-avc1.mp4",
-      "bytes": 101326,
+      "bytes": 101318,
       "decode": "ok",
       "durationSec": 5.93,
       "sampleRate": 48000,
@@ -123,7 +123,7 @@
     },
     {
       "file": "prueba-vp8.webm",
-      "bytes": 68758,
+      "bytes": 68757,
       "decode": "ok",
       "durationSec": 5.94,
       "sampleRate": 48000,
@@ -140,7 +140,7 @@
     },
     {
       "file": "prueba-vp9.webm",
-      "bytes": 75680,
+      "bytes": 75640,
       "decode": "ok",
       "durationSec": 5.94,
       "sampleRate": 48000,
@@ -161,37 +161,37 @@
       "minutes": 10,
       "allocated": true,
       "resampled": true,
-      "ms": 849
+      "ms": 713
     },
     {
       "minutes": 20,
       "allocated": true,
       "resampled": true,
-      "ms": 1653
+      "ms": 1452
     },
     {
       "minutes": 30,
       "allocated": true,
       "resampled": true,
-      "ms": 2434
+      "ms": 2234
     },
     {
       "minutes": 60,
       "allocated": true,
       "resampled": true,
-      "ms": 7490
+      "ms": 6025
     },
     {
       "minutes": 90,
       "allocated": true,
       "resampled": true,
-      "ms": 7608
+      "ms": 6362
     },
     {
       "minutes": 120,
       "allocated": true,
       "resampled": true,
-      "ms": 9809
+      "ms": 8800
     }
   ]
 }

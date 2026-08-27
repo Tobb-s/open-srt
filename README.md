@@ -21,6 +21,11 @@ cierra con mediciones antes de pasar a la siguiente.
   desde un CDN de terceros.
 - **Subtítulos con tiempos reales**: `.srt` y `.vtt`, con las convenciones que hacen que se
   lean bien (42 caracteres por línea, dos líneas, velocidad de lectura). Comprobado en VLC.
+- **Video**: mp4, webm y más. No hace falta ninguna cabecera especial ni ffmpeg en el
+  navegador — el audio de un contenedor de video se abre con lo mismo que ya se usaba para
+  audio. Está medido en `docs/E3-ESTADO.md`.
+- **Seis formatos de salida**: TXT, SRT, VTT, CSV, **DOCX y PDF**. El documento lleva las
+  horas en el margen y el texto en columna: es para leer, no un volcado.
 - **Editor sincronizado**: hacés clic en el tiempo de una línea y el audio salta ahí; el
   texto se corrige en el lugar.
 - **Queda guardado en tu navegador.** Cerrás la pestaña, volvés, y la transcripción y tus
@@ -80,8 +85,9 @@ funciona igual, con un modelo más chico.
 ## Desarrollo
 
 ```bash
-npm test             # 293 tests
+npm test             # 340 tests
 npm run mutation     # rompe el código a propósito y confirma que los tests lo atrapan
+                     # (acepta un filtro: `npm run mutation -- csv.ts`)
 npm run corpus:build # regenera el corpus de medición desde OpenSLR
 npm run corpus:verify
 npm run drift:build  # arma el audio de 30 min del test de desfase
