@@ -27,6 +27,13 @@ export interface DocRow {
   /** `HH:MM:SS` — sin milisegundos: en un documento para leer son ruido. */
   time: string;
   text: string;
+  /**
+   * Quien habla, **solo cuando cambia**.
+   *
+   * Repetirlo en cada fila llenaria la columna de «Martin» cuando Martin habla cinco tramos
+   * seguidos, y el ojo dejaria de verlo. Vacio significa «sigue el anterior».
+   */
+  speaker?: string;
 }
 
 export interface DocModel {
@@ -54,12 +61,18 @@ export function layoutTranscript(
   opts: { fileName: string; durationHuman: string; labels: DocLabels },
 ): DocModel {
   const rows: DocRow[] = [];
+  let ultimo: string | undefined;
   for (const s of segments) {
     const texto = s.text.trim();
     if (!texto) continue;
     // Sin milisegundos, y sin la coma del SRT: acá el tiempo es una referencia para el ojo,
     // no una marca que tenga que consumir un reproductor.
-    rows.push({ time: formatTime(s.startSec, '.').slice(0, 8), text: texto });
+    rows.push({
+      time: formatTime(s.startSec, '.').slice(0, 8),
+      text: texto,
+      speaker: s.speaker && s.speaker !== ultimo ? s.speaker : undefined,
+    });
+    ultimo = s.speaker;
   }
 
   return {

@@ -48,6 +48,11 @@ CSV = ROOT / "src" / "lib" / "export" / "csv.ts"
 PROBE = ROOT / "src" / "lib" / "video" / "probe.ts"
 DOCM = ROOT / "src" / "lib" / "export" / "document.ts"
 PDFX = ROOT / "src" / "lib" / "export" / "pdf.ts"
+DER = ROOT / "src" / "lib" / "diar" / "der.ts"
+CLUS = ROOT / "src" / "lib" / "diar" / "cluster.ts"
+DIAR = ROOT / "src" / "lib" / "diar" / "diarize.ts"
+COLOR = ROOT / "src" / "lib" / "diar" / "colores.ts"
+SUBS2 = ROOT / "src" / "lib" / "export" / "subtitles.ts"
 
 # (nombre, archivo, texto original, texto mutado, qué debería atrapar)
 MUTANTS = [
@@ -521,6 +526,91 @@ MUTANTS = [
         "    if (adapter === 'timeout') {",
         '    if (false) {',
         'el mensaje diria que no hay adaptador cuando en realidad no contesto',
+    ),
+    # ---- E4: diarizacion ----
+    (
+        'el DER deja de buscar la mejor correspondencia de etiquetas',
+        DER,
+        '    if (!mejor || total < mejor.missedSec + mejor.falseAlarmSec + mejor.confusionSec) {',
+        '    if (!mejor) {',
+        'un sistema perfecto que numero distinto daria 100 % de error',
+    ),
+    (
+        'el DER no cuenta el habla solapada dos veces',
+        DER,
+        '    totalRef += R[i].size * FRAME_SEC;',
+        '    totalRef += (R[i].size > 0 ? 1 : 0) * FRAME_SEC;',
+        'el denominador ignoraria que hablan dos a la vez',
+    ),
+    (
+        'el collar del DER se come tambien el medio de los turnos',
+        DER,
+        '    for (let j = Math.max(0, i - radio); j < Math.min(ref.length, i + radio); j++) fuera[j] = true;',
+        '    for (let j = 0; j < ref.length; j++) fuera[j] = true;',
+        'cualquier sistema daria 0 y la metrica no mediria nada',
+    ),
+    (
+        'el agrupamiento usa enlace simple en vez de promedio',
+        CLUS,
+        '    return acc / (a.length * b.length);',
+        '    return acc;',
+        'encadenaria: un tramo ambiguo pega dos hablantes distintos',
+    ),
+    (
+        'el agrupamiento ignora el umbral',
+        CLUS,
+        '    const debeUnir = mejor >= opts.threshold || grupos.length > tope;',
+        '    const debeUnir = grupos.length > tope;',
+        'el umbral medido dejaria de tener efecto',
+    ),
+    (
+        'el coseno divide por cero sin protegerse',
+        CLUS,
+        '  return d === 0 ? 0 : p / d;',
+        '  return p / d;',
+        'un tramo mudo daria NaN y lo propagaria por todo el agrupamiento',
+    ),
+    (
+        'la diarizacion le pide embedding a los tramos cortos',
+        DIAR,
+        '    if (s.endSec - s.startSec >= MIN_SEC) indicesLargos.push(i);',
+        '    indicesLargos.push(i);',
+        'gasta inferencias y mete ruido en el agrupamiento',
+    ),
+    (
+        'los tramos cortos quedan sin atribuir',
+        DIAR,
+        "    speakers[i] = mejor >= 0 ? speakers[mejor] : '0';",
+        "    speakers[i] = '';",
+        'un tramo en blanco entre dos con nombre se lee como un error',
+    ),
+    (
+        'el color de hablante se rompe con indice negativo',
+        COLOR,
+        '  const i = ((posicion % PALETA.length) + PALETA.length) % PALETA.length;',
+        '  const i = posicion % PALETA.length;',
+        'un hablante no encontrado daria undefined sin avisar',
+    ),
+    (
+        'el orden de hablantes pasa a ser alfabetico',
+        COLOR,
+        '    if (s !== undefined && !vistos.includes(s)) vistos.push(s);',
+        '    if (s !== undefined && !vistos.includes(s)) vistos.unshift(s);',
+        'el color de cada persona cambiaria entre archivos',
+    ),
+    (
+        'el VTT deja de escapar el marcado',
+        SUBS2,
+        "  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');",
+        '  return s;',
+        'un texto con < corta la linea en el navegador sin avisar',
+    ),
+    (
+        'el texto plano repite el nombre en cada tramo',
+        SUBS2,
+        '    if (t.speaker && t.speaker !== ultimo) lineas.push(`${t.speaker}: ${texto}`);',
+        '    if (t.speaker) lineas.push(`${t.speaker}: ${texto}`);',
+        'la pagina se llena de «Martin:» y el ojo deja de verlo',
     ),
 ]
 

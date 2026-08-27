@@ -45,6 +45,15 @@ export async function toDocxBlob(model: DocModel): Promise<Blob> {
               new Paragraph({
                 children: [new TextRun({ text: r.time, font: 'Consolas', size: 18, color: '666666' })],
               }),
+              // El nombre debajo de la hora, no delante del texto: asi los nombres forman
+              // una guia vertical y no le roban ancho a lo que se lee.
+              ...(r.speaker
+                ? [
+                    new Paragraph({
+                      children: [new TextRun({ text: r.speaker, size: 18, bold: true })],
+                    }),
+                  ]
+                : []),
             ],
           }),
           new TableCell({

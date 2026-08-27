@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 import { Transcriber } from './transcriber';
 import { SpeechDetector } from '../vad/silero';
+import { SpeakerEmbedder } from '../diar/embedder';
+import { diarize } from '../diar/diarize';
 import { toBlocks, type Segment } from '../vad/segments';
 import type { Dtype } from './models';
 import type { TimedText, CoverageCheck } from '../vad/align';
@@ -22,6 +24,8 @@ export type WorkerRequest =
   | { type: 'loadDetector' }
   | { type: 'setAudio'; audio: Float32Array; durationSec: number }
   | { type: 'detect' }
+  | { type: 'loadEmbedder' }
+  | { type: 'diarize'; segments: Segment[] }
   | { type: 'transcribeSegmented'; segments: Segment[]; language?: string }
   | {
       type: 'transcribe';
@@ -40,6 +44,9 @@ export type WorkerResponse =
   | { type: 'audioSet' }
   | { type: 'detectProgress'; processedSec: number; durationSec: number }
   | { type: 'detected'; segments: Segment[]; speechSec: number }
+  | { type: 'embedderReady' }
+  | { type: 'diarizeProgress'; done: number; total: number }
+  | { type: 'diarized'; speakers: string[]; count: number }
   | { type: 'blockProgress'; done: number; total: number; processedSec: number; durationSec: number; partialText: string }
   | { type: 'segmented'; segments: TimedText[]; text: string; inferMs: number; coverage: CoverageCheck }
   | { type: 'progress'; processedSec?: number; durationSec: number; partialText: string }
@@ -48,6 +55,7 @@ export type WorkerResponse =
 
 const transcriber = new Transcriber();
 const detector = new SpeechDetector();
+const embedder = new SpeakerEmbedder();
 
 /** El audio de la sesión, guardado para que detectar y transcribir lo compartan. */
 let audio: Float32Array | null = null;
@@ -97,6 +105,25 @@ self.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       return;
     }
 
+    if (req.type === 'loadEmbedder') {
+      await embedder.load({ onDownload: (p) => post({ type: 'download', ...p }) });
+      post({ type: 'embedderReady' });
+      return;
+    }
+
+    if (req.type === 'diarize') {
+      if (!audio) throw new Error('No hay audio cargado');
+      const r = await diarize({
+        audio,
+        segments: req.segments,
+        sampleRate: 16000,
+        embed: (trozo) => embedder.embed(trozo),
+        onProgress: (done, total) => post({ type: 'diarizeProgress', done, total }),
+      });
+      post({ type: 'diarized', ...r });
+      return;
+    }
+
     if (req.type === 'transcribeSegmented') {
       if (!audio) throw new Error('No hay audio cargado');
       const r = await transcriber.transcribeSegmented({
@@ -125,12 +152,19 @@ self.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
     if (req.type === 'dispose') {
       await transcriber.dispose();
       await detector.dispose();
+      await embedder.dispose();
       audio = null;
       return;
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     // Un fallo al cargar deja el worker inservible; uno al transcribir, no.
-    post({ type: 'error', message, fatal: req.type === 'load' || req.type === 'loadDetector' });
+    post({
+      type: 'error',
+      message,
+      // Un fallo al cargar el modelo de hablantes NO es fatal: la transcripcion sigue
+      // sirviendo sin saber quien habla, que es lo que la herramienta hacia hasta ayer.
+      fatal: req.type === 'load' || req.type === 'loadDetector',
+    });
   }
 });

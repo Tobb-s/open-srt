@@ -58,6 +58,13 @@ export interface StoredSegment {
   startSec: number;
   endSec: number;
   text: string;
+  /**
+   * Quien habla, si se separaron los hablantes.
+   *
+   * Se guarda **el nombre que ve el usuario**, no la etiqueta del modelo: si renombro a
+   * «Martin», al volver tiene que decir «Martin» y no «Hablante 1».
+   */
+  speaker?: string;
   /** Si el usuario lo corrigió a mano. Se marca para no pisarlo y para poder mostrarlo. */
   edited: boolean;
 }
@@ -154,6 +161,7 @@ export class SessionStore {
         startSec: s.startSec,
         endSec: s.endSec,
         text: s.text,
+        speaker: s.speaker,
         edited: false,
       } satisfies StoredSegment);
     }
@@ -177,8 +185,19 @@ export class SessionStore {
     return session;
   }
 
-  /** Escribe una corrección. Toca **un registro**: ni el audio ni los otros tramos. */
-  async updateSegment(sessionId: string, index: number, text: string): Promise<void> {
+  /**
+   * Escribe una corrección. Toca **un registro**: ni el audio ni los otros tramos.
+   *
+   * `speaker` es opcional y sólo se escribe si viene: renombrar un hablante y corregir un
+   * texto son dos cosas distintas, y pasar `undefined` no puede borrar el nombre que ya
+   * estaba.
+   */
+  async updateSegment(
+    sessionId: string,
+    index: number,
+    text: string,
+    speaker?: string,
+  ): Promise<void> {
     const tx = this.db.transaction('segments', 'readwrite');
     const store = tx.objectStore('segments');
     const actual = await promisify<StoredSegment | undefined>(store.get([sessionId, index]));
@@ -186,7 +205,12 @@ export class SessionStore {
       tx.abort();
       throw new Error(`No existe el tramo ${index} de la sesión ${sessionId}`);
     }
-    store.put({ ...actual, text, edited: true });
+    store.put({
+      ...actual,
+      text,
+      speaker: speaker ?? actual.speaker,
+      edited: true,
+    });
     await finished(tx);
   }
 

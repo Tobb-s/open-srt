@@ -83,6 +83,41 @@ describe('SessionStore — ida y vuelta', () => {
     b.close();
   });
 
+  it('el hablante sobrevive a cerrar y volver a abrir', async () => {
+    const a = await SessionStore.open(factory);
+    await a.save(
+      META,
+      [
+        { startSec: 0, endSec: 2, text: 'hola', speaker: 'Martín' },
+        { startSec: 2, endSec: 4, text: 'qué tal', speaker: 'Ana' },
+      ],
+      null,
+    );
+    a.close();
+
+    const b = await SessionStore.open(factory);
+    const { segments } = (await b.load('ses-1'))!;
+    expect(segments.map((s) => s.speaker)).toEqual(['Martín', 'Ana']);
+    b.close();
+  });
+
+  it('renombrar persiste, y corregir el texto no borra el hablante', async () => {
+    // Son dos operaciones distintas sobre el mismo registro. Si corregir el texto pasara
+    // `undefined` como hablante y eso borrara el nombre, el usuario perdería el renombrado
+    // al arreglar una coma — y no habría error que lo delatara.
+    const s = await SessionStore.open(factory);
+    await s.save(META, [{ startSec: 0, endSec: 2, text: 'hola', speaker: 'Hablante 1' }], null);
+
+    await s.updateSegment('ses-1', 0, 'hola', 'Martín');
+    expect((await s.load('ses-1'))!.segments[0].speaker).toBe('Martín');
+
+    await s.updateSegment('ses-1', 0, 'hola corregido');
+    const tras = (await s.load('ses-1'))!.segments[0];
+    expect(tras.text).toBe('hola corregido');
+    expect(tras.speaker, 'corregir el texto no puede borrar el hablante').toBe('Martín');
+    s.close();
+  });
+
   it('devuelve null para una sesión que no existe', async () => {
     const s = await SessionStore.open(factory);
     expect(await s.load('no-existe')).toBeNull();

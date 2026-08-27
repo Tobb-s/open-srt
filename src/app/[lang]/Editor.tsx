@@ -5,6 +5,7 @@ import type { TimedText } from '@/lib/vad/align';
 import { toCues, toSrt, toVtt, toPlainText } from '@/lib/export/subtitles';
 import { toCsv } from '@/lib/export/csv';
 import { layoutTranscript } from '@/lib/export/document';
+import { colorDeHablante, ordenDeAparicion } from '@/lib/diar/colores';
 import { dict, humanDuration, type Lang } from '@/lib/i18n';
 
 /**
@@ -38,6 +39,14 @@ interface Props {
   /** Qué índices ya venían corregidos a mano (de una sesión recuperada). */
   editedInitially?: ReadonlySet<number>;
   onEdit: (index: number, text: string) => void;
+  /**
+   * Renombrar un hablante en **todos** sus tramos a la vez.
+   *
+   * `undefined` cuando no se separaron hablantes. Corregir tramo por tramo seria inaceptable
+   * en una reunion de una hora, y ademas es como se unen dos hablantes que el modelo partio:
+   * poniendoles el mismo nombre.
+   */
+  onRenameSpeaker?: (anterior: string, nuevo: string) => void;
 }
 
 function formatClock(sec: number): string {
@@ -57,6 +66,7 @@ export default function Editor({
   fileName,
   editedInitially,
   onEdit,
+  onRenameSpeaker,
 }: Props) {
   const t = dict(lang);
   // `HTMLMediaElement` y no `HTMLAudioElement`: `currentTime`, `play()` y `timeupdate` son
@@ -126,6 +136,12 @@ export default function Editor({
     [segments, fileName, lang, t],
   );
 
+  // Los hablantes, en orden de aparicion: a quien habla primero le toca siempre el primer
+  // color, asi la pantalla se lee igual entre archivos.
+  const hablantes = ordenDeAparicion(segments.map((s) => s.speaker));
+  const colorDe = (nombre: string | undefined) =>
+    nombre === undefined ? null : colorDeHablante(hablantes.indexOf(nombre));
+
   const conTexto = segments.filter((s) => s.text.trim());
   const palabras = conTexto.reduce((a, s) => a + s.text.trim().split(/\s+/).length, 0);
   const hablaSec = segments.reduce((a, s) => a + Math.max(0, s.endSec - s.startSec), 0);
@@ -177,6 +193,27 @@ export default function Editor({
         <p className="text-sm text-neutral-500">{t.store.audioTooBig}</p>
       )}
 
+      {hablantes.length > 0 && (
+        <div className="space-y-2 rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">{t.speakers.found(hablantes.length)}</span>
+            {hablantes.map((h, i) => (
+              <span
+                key={h}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm ${colorDeHablante(i).fondo} ${colorDeHablante(i).texto}`}
+              >
+                <span className={`h-2 w-2 rounded-full ${colorDeHablante(i).barra}`} />
+                {h}
+              </span>
+            ))}
+          </div>
+          {onRenameSpeaker && <p className="text-xs text-neutral-500">{t.speakers.rename}</p>}
+          {/* Lo que la separacion NO hace, dicho donde se ve el resultado y no escondido en
+              la documentacion. */}
+          <p className="text-xs text-neutral-400">{t.speakers.caveat}</p>
+        </div>
+      )}
+
       <ol className="divide-y divide-neutral-200 overflow-hidden rounded-2xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
         {segments.map((s, i) => (
           <li
@@ -185,6 +222,14 @@ export default function Editor({
               i === activo ? 'bg-blue-50 dark:bg-blue-950/40' : ''
             }`}
           >
+            {/* La barra va en TODOS los tramos aunque el nombre solo aparezca al cambiar:
+                es lo que permite ver de quien es una linea sin leerla. */}
+            {s.speaker !== undefined && (
+              <span
+                aria-hidden
+                className={`w-1 shrink-0 rounded-full ${colorDe(s.speaker)?.barra ?? ''}`}
+              />
+            )}
             <button
               onClick={() => saltarA(s.startSec)}
               disabled={!audioUrl}
@@ -194,20 +239,38 @@ export default function Editor({
             >
               {formatClock(s.startSec)}
             </button>
-            <span
-              contentEditable
-              suppressContentEditableWarning
-              onBlur={(e) => {
-                const nuevo = e.currentTarget.textContent ?? '';
-                if (nuevo !== s.text) {
-                  onEdit(i, nuevo);
-                  setEditados((prev) => new Set(prev).add(i));
-                }
-              }}
-              className="flex-1 outline-none focus:rounded focus:bg-white focus:ring-2 focus:ring-blue-500 dark:focus:bg-neutral-900"
-            >
-              {s.text}
-            </span>
+            <div className="flex-1">
+              {/* El nombre solo cuando cambia: repetirlo en cada tramo llenaria la columna
+                  y el ojo dejaria de verlo. */}
+              {s.speaker !== undefined && s.speaker !== segments[i - 1]?.speaker && (
+                <span
+                  contentEditable={!!onRenameSpeaker}
+                  suppressContentEditableWarning
+                  onBlur={(e) => {
+                    const nuevo = (e.currentTarget.textContent ?? '').trim();
+                    if (nuevo && nuevo !== s.speaker) onRenameSpeaker?.(s.speaker!, nuevo);
+                    else e.currentTarget.textContent = s.speaker!;
+                  }}
+                  className={`mb-0.5 block text-sm font-medium outline-none focus:rounded focus:ring-2 focus:ring-blue-500 ${colorDe(s.speaker)?.texto ?? ''}`}
+                >
+                  {s.speaker}
+                </span>
+              )}
+              <span
+                contentEditable
+                suppressContentEditableWarning
+                onBlur={(e) => {
+                  const nuevo = e.currentTarget.textContent ?? '';
+                  if (nuevo !== s.text) {
+                    onEdit(i, nuevo);
+                    setEditados((prev) => new Set(prev).add(i));
+                  }
+                }}
+                className="block outline-none focus:rounded focus:bg-white focus:ring-2 focus:ring-blue-500 dark:focus:bg-neutral-900"
+              >
+                {s.text}
+              </span>
+            </div>
             {editados.has(i) && (
               <span className="shrink-0 self-start text-xs text-neutral-400">
                 {t.editor.edited}

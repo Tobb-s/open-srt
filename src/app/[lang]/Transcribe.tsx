@@ -10,6 +10,7 @@ import { learnedRtf, recordRtf, sampleCount } from '@/lib/asr/learned';
 import { decodeToMono16k } from '@/lib/audio/decode';
 import type { TimedText } from '@/lib/vad/align';
 import { SessionStore, newSessionId, type StoredSession } from '@/lib/store/session';
+import { defaultSpeakerName } from '@/lib/diar/diarize';
 import { dict, humanDuration, humanRange, type Lang } from '@/lib/i18n';
 import Editor from './Editor';
 
@@ -78,6 +79,13 @@ export default function Transcribe({ lang }: { lang: Lang }) {
   // al usuario que confirme el idioma, así que el default es el predecible y «Detectar»
   // queda como opción advertida.
   const [audioLang, setAudioLang] = useState<'auto' | 'es' | 'en'>(lang);
+  // Apagada por defecto: descarga 25 MB mas y suma una inferencia por tramo. Quien la
+  // necesita —una reunion, una entrevista— la enciende; quien transcribe a una sola persona
+  // no paga por algo que no le sirve.
+  const [separarHablantes, setSepararHablantes] = useState(false);
+  const [avanceHablantes, setAvanceHablantes] = useState<{ done: number; total: number } | null>(
+    null,
+  );
 
   const engineRef = useRef<AsrEngine | null>(null);
   const estimatorRef = useRef<Estimator | null>(null);
@@ -208,6 +216,8 @@ export default function Transcribe({ lang }: { lang: Lang }) {
 
       const out = await engine.transcribeTimed(file.samples, file.durationSec, {
         language: audioLang === 'auto' ? undefined : audioLang,
+        diarize: separarHablantes,
+        onDiarizeProgress: setAvanceHablantes,
         onPhase: (p) => {
           setPhase(p);
           // El detector y el modelo miden segundos distintos; arrancar de cero al pasar de
@@ -237,6 +247,14 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       // estimación del próximo archivo, que ya no va a ser prestada.
       recordRtf(profile.key, out.inferMs / 1000 / file.durationSec, file.durationSec);
 
+      // El modelo devuelve `0`, `1`, `2`. El nombre que ve la gente se pone aca, no en el
+      // modelo: numerar desde 1 es cosa de la interfaz.
+      const conNombres = out.segments.map((x) => ({
+        ...x,
+        speaker:
+          x.speaker === undefined ? undefined : defaultSpeakerName(x.speaker, t.speakers.name),
+      }));
+
       const id = newSessionId();
       // Tres estados, no dos: guardado con audio, guardado sin audio, y **no guardado**
       // —el navegador no dio IndexedDB, o no había nada que guardar—. Decir «el audio no
@@ -244,7 +262,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       let aviso: string | null = null;
       // Una transcripción sin una sola palabra no se guarda. Si se guardara, la próxima
       // visita ofrecería recuperar una pantalla vacía, que es peor que no ofrecer nada.
-      const hayTexto = out.segments.some((x) => x.text.trim());
+      const hayTexto = conNombres.some((x) => x.text.trim());
       try {
         const guardada = hayTexto
           ? await storeRef.current?.save(
@@ -257,7 +275,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
                 inferMs: out.inferMs,
                 suspicious: out.coverage.suspicious,
               },
-              out.segments,
+              conNombres,
               file.blob,
             )
           : undefined;
@@ -271,7 +289,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       setSesion({
         id,
         fileName: file.name,
-        segments: out.segments,
+        segments: conNombres,
         suspicious: out.coverage.suspicious,
         // El audio para reproducir sale del archivo que el usuario acaba de abrir, esté o
         // no guardado: no hay razón para no poder escucharlo ahora.
@@ -286,7 +304,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
       setError(err instanceof Error ? err.message : t.errors.generic);
       setPhase('error');
     }
-  }, [file, profile, t, audioLang, ponerAudioUrl]);
+  }, [file, profile, t, audioLang, ponerAudioUrl, separarHablantes]);
 
   /**
    * Una corrección: se aplica en pantalla y se escribe en la base.
@@ -311,6 +329,35 @@ export default function Transcribe({ lang }: { lang: Lang }) {
     [sesionId],
   );
 
+  /**
+   * Renombrar un hablante en todos sus tramos.
+   *
+   * Dos personas con el mismo nombre quedan **unidas**, y eso es a proposito: es la salida
+   * para el defecto conocido del modelo, que a veces parte a una persona en dos.
+   */
+  const onRenameSpeaker = useCallback(
+    (anterior: string, nuevo: string) => {
+      setSesion((prev) => {
+        if (!prev) return prev;
+        const segments = prev.segments.map((s) =>
+          s.speaker === anterior ? { ...s, speaker: nuevo } : s,
+        );
+        // Se persiste igual que una correccion de texto: un registro por tramo afectado, sin
+        // tocar el audio.
+        const store = storeRef.current;
+        if (store) {
+          for (const [i, s] of prev.segments.entries()) {
+            if (s.speaker === anterior) {
+              void store.updateSegment(prev.id, i, segments[i].text, nuevo).catch(() => {});
+            }
+          }
+        }
+        return { ...prev, segments };
+      });
+    },
+    [],
+  );
+
   const restaurar = useCallback(async () => {
     const s = storeRef.current;
     if (!s || !pendiente) return;
@@ -323,6 +370,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
         startSec: x.startSec,
         endSec: x.endSec,
         text: x.text,
+        speaker: x.speaker,
       })),
       suspicious: cargada.session.suspicious,
       audioUrl: ponerAudioUrl(cargada.audio),
@@ -368,7 +416,9 @@ export default function Transcribe({ lang }: { lang: Lang }) {
     phase === 'loading' ||
     phase === 'detector' ||
     phase === 'detecting' ||
-    phase === 'transcribing';
+    phase === 'transcribing' ||
+    phase === 'embedder' ||
+    phase === 'diarizing';
 
   // Sólo hay porcentaje si hay un avance medido. Sin eso NO se dibuja una barra: fingir
   // una medición es exactamente lo que esta herramienta no hace.
@@ -386,7 +436,11 @@ export default function Transcribe({ lang }: { lang: Lang }) {
           ? t.detect.loading
           : phase === 'detecting'
             ? t.detect.running
-            : t.run.transcribing;
+            : phase === 'embedder'
+              ? t.speakers.loading
+              : phase === 'diarizing'
+                ? t.speakers.running(avanceHablantes?.done ?? 0, avanceHablantes?.total ?? 0)
+                : t.run.transcribing;
 
   return (
     <div className="space-y-8">
@@ -556,6 +610,24 @@ export default function Transcribe({ lang }: { lang: Lang }) {
             </p>
           </div>
 
+          <div className="pt-1">
+            <label className="flex items-start gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+              <input
+                type="checkbox"
+                checked={separarHablantes}
+                onChange={(e) => setSepararHablantes(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                  {t.speakers.label}
+                </span>
+                {/* El costo se dice ANTES de aceptar, no despues de esperar. */}
+                <span className="mt-0.5 block text-xs text-neutral-500">{t.speakers.hint}</span>
+              </span>
+            </label>
+          </div>
+
           <div className="flex gap-3 pt-1">
             <button
               onClick={run}
@@ -603,7 +675,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
             </>
           )}
 
-          {(phase === 'downloading' || phase === 'detector') && (
+          {(phase === 'downloading' || phase === 'detector' || phase === 'embedder') && (
             <div className="h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
               <div
                 className="h-full bg-neutral-500 transition-[width]"
@@ -640,6 +712,7 @@ export default function Transcribe({ lang }: { lang: Lang }) {
               fileName={sesion.fileName}
               editedInitially={sesion.editedInitially}
               onEdit={onEdit}
+              onRenameSpeaker={onRenameSpeaker}
             />
           ) : (
             <p className="text-neutral-500">{t.result.empty}</p>

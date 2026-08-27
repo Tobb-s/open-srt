@@ -76,6 +76,7 @@ const TAM_HORA = 8;
 const INTERLINEA = 14;
 const ESPACIO_ENTRE_TRAMOS = 6;
 const ANCHO_COLUMNA_HORA = 52;
+const ESPACIO_ENTRE_HABLANTES = 6;
 const ALTO_ENCABEZADO = 64;
 
 /**
@@ -85,6 +86,21 @@ const ALTO_ENCABEZADO = 64;
  * acepta como parte de un `Blob` —podría ser un `SharedArrayBuffer`—. Se copia a uno propio:
  * son unos cientos de kilobytes y la simetría con `toDocxBlob` vale más que ahorrarlos.
  */
+/** Recorta un texto para que entre en un ancho, agregando puntos suspensivos. */
+function recortarA(
+  texto: string,
+  ancho: number,
+  font: { widthOfTextAtSize(s: string, size: number): number },
+  size = 8.5,
+): string {
+  if (font.widthOfTextAtSize(texto, size) <= ancho) return texto;
+  let corto = texto;
+  while (corto.length > 1 && font.widthOfTextAtSize(corto + '...', size) > ancho) {
+    corto = corto.slice(0, -1);
+  }
+  return corto + '...';
+}
+
 export async function toPdfBlob(model: DocModel): Promise<Blob> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
 
@@ -100,9 +116,19 @@ export async function toPdfBlob(model: DocModel): Promise<Blob> {
   // líneas quedó, así que no se puede paginar antes de saberlo.
   const tramos = model.rows.map((r) => ({
     time: toPdfSafe(r.time),
+    // El nombre se recorta al ancho de su columna: uno largo invadiria el texto y quedarian
+    // dos cosas encimadas, que es peor que un nombre cortado.
+    speaker: r.speaker ? recortarA(toPdfSafe(r.speaker), ANCHO_COLUMNA_HORA - 4, negrita) : undefined,
     lineas: wrapByMeasure(toPdfSafe(r.text), anchoTexto, medir),
   }));
-  const alturas = tramos.map((t) => t.lineas.length * INTERLINEA + ESPACIO_ENTRE_TRAMOS);
+  // Un tramo que estrena hablante lleva un respiro extra arriba: sin eso, el cambio de
+  // persona no se ve al hojear.
+  const alturas = tramos.map(
+    (t) =>
+      t.lineas.length * INTERLINEA +
+      ESPACIO_ENTRE_TRAMOS +
+      (t.speaker ? ESPACIO_ENTRE_HABLANTES : 0),
+  );
 
   // La primera lleva encabezado y por eso tiene menos lugar; las demás usan la página entera.
   const paginas = paginate(
@@ -131,6 +157,16 @@ export async function toPdfBlob(model: DocModel): Promise<Blob> {
 
     for (const i of indices) {
       const t = tramos[i];
+      if (t.speaker) {
+        y -= ESPACIO_ENTRE_HABLANTES;
+        page.drawText(t.speaker, {
+          x: MARGEN,
+          y: y - TAM_TEXTO,
+          size: TAM_HORA + 0.5,
+          font: negrita,
+        });
+        y -= INTERLINEA;
+      }
       // La hora se alinea con la **primera** línea del tramo, no con el bloque entero: así
       // las horas forman una guía vertical que el ojo puede recorrer.
       page.drawText(t.time, {

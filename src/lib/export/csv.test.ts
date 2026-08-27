@@ -64,7 +64,7 @@ describe('toCsv', () => {
     expect(filas[0]).toEqual([...CSV_HEADER]);
     // El tramo vacío no genera fila: una fila en blanco en una planilla es ruido.
     expect(filas).toHaveLength(4);
-    expect(filas.map((f) => f[4]).slice(1)).toEqual([
+    expect(filas.map((f) => f[5]).slice(1)).toEqual([
       'Hola, ¿qué tal?',
       'Dijo «hola» y se fue',
       'Pasada la hora',
@@ -76,7 +76,7 @@ describe('toCsv', () => {
     // entrecomillar, esa fila tendría una columna de más y el archivo entero se corre.
     const [, primera] = parseCsv(toCsv(TRAMOS));
     expect(primera).toHaveLength(CSV_HEADER.length);
-    expect(primera[4]).toBe('Hola, ¿qué tal?');
+    expect(primera[5]).toBe('Hola, ¿qué tal?');
   });
 
   it('los segundos son número y el tiempo legible es texto', () => {
@@ -112,6 +112,35 @@ describe('toCsv', () => {
     // solo — pero conviene que falle con un nombre que lo diga.
     expect(() => parseCsv(toCsv(TRAMOS))).not.toThrow();
     expect(toCsv(TRAMOS)).toContain('\r\n');
+  });
+
+  it('el hablante va en columna propia, no pegado al texto', () => {
+    // En una tabla el hablante es un campo por el que se filtra y se agrupa. Como prefijo
+    // del texto habría que volver a separarlo con una expresión regular en cada uso.
+    const conHablante: TimedText[] = [
+      { startSec: 0, endSec: 1, text: 'Buenas', speaker: 'Martín' },
+      { startSec: 1, endSec: 2, text: 'Hola', speaker: 'Ana' },
+    ];
+    const filas = parseCsv(toCsv(conHablante));
+    expect(filas[0][4]).toBe('speaker');
+    expect(filas.slice(1).map((f) => [f[4], f[5]])).toEqual([
+      ['Martín', 'Buenas'],
+      ['Ana', 'Hola'],
+    ]);
+  });
+
+  it('sin hablante la columna queda vacía y el resto no se corre', () => {
+    // La diarización es opcional: sin ella el archivo tiene que seguir siendo válido y con
+    // la misma cantidad de columnas.
+    const filas = parseCsv(toCsv(TRAMOS));
+    for (const f of filas) expect(f).toHaveLength(CSV_HEADER.length);
+    expect(filas[1][4]).toBe('');
+  });
+
+  it('un nombre con coma también se escapa', () => {
+    const filas = parseCsv(toCsv([{ startSec: 0, endSec: 1, text: 'Hola', speaker: 'Pérez, Ana' }]));
+    expect(filas[1][4]).toBe('Pérez, Ana');
+    expect(filas[1]).toHaveLength(CSV_HEADER.length);
   });
 
   it('sin tramos con texto queda sólo la cabecera', () => {

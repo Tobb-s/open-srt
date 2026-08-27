@@ -26,6 +26,10 @@ cierra con mediciones antes de pasar a la siguiente.
   audio. Está medido en `docs/E3-ESTADO.md`.
 - **Seis formatos de salida**: TXT, SRT, VTT, CSV, **DOCX y PDF**. El documento lleva las
   horas en el margen y el texto en columna: es para leer, no un volcado.
+- **Separa hablantes**, si se lo pedís. Marca quién dice cada cosa, con un color por persona
+  y nombres que podés cambiar. Corre en tu equipo como todo lo demás: 25 MB más de descarga y
+  alrededor de un tercio más de tiempo. Los nombres van a los seis formatos, cada uno con su
+  convención — `<v Nombre>` en VTT, columna propia en CSV.
 - **Editor sincronizado**: hacés clic en el tiempo de una línea y el audio salta ahí; el
   texto se corrige en el lugar.
 - **Queda guardado en tu navegador.** Cerrás la pestaña, volvés, y la transcripción y tus
@@ -38,8 +42,7 @@ cierra con mediciones antes de pasar a la siguiente.
   que tardó en tu equipo.
 - **Elige el modelo según lo que aguanta tu equipo**, y si va a ser peor, lo dice.
 
-Lo que **todavía no** hace: video, separar hablantes, traducción ni resúmenes. Están
-planificados en `docs/ETAPAS.md`.
+Lo que **todavía no** hace: traducción ni resúmenes. Están planificados en `docs/ETAPAS.md`.
 
 ## Qué tan bueno es
 
@@ -85,7 +88,7 @@ funciona igual, con un modelo más chico.
 ## Desarrollo
 
 ```bash
-npm test             # 380 tests
+npm test             # 418 tests
 npm run mutation     # rompe el código a propósito y confirma que los tests lo atrapan
                      # (acepta un filtro: `npm run mutation -- csv.ts`)
 npm run corpus:build # regenera el corpus de medición desde OpenSLR

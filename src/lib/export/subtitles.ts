@@ -41,6 +41,8 @@ export interface Cue {
   endSec: number;
   /** Ya partido en líneas. */
   lines: string[];
+  /** Quien habla, si se sabe. Cada formato decide como escribirlo. */
+  speaker?: string;
 }
 
 /**
@@ -92,7 +94,12 @@ export function toCues(
   rules: SubtitleRules = DEFAULT_RULES,
 ): Cue[] {
   const cap = capacidad(rules);
-  const partidos: Array<{ startSec: number; endSec: number; text: string }> = [];
+  const partidos: Array<{
+    startSec: number;
+    endSec: number;
+    text: string;
+    speaker?: string;
+  }> = [];
 
   for (const t of timed) {
     const texto = t.text.trim();
@@ -106,7 +113,7 @@ export function toCues(
     const partes = Math.max(1, porTamaño, porLectura, porDuracion);
 
     if (partes === 1) {
-      partidos.push({ startSec: t.startSec, endSec: t.endSec, text: texto });
+      partidos.push({ startSec: t.startSec, endSec: t.endSec, text: texto, speaker: t.speaker });
       continue;
     }
 
@@ -124,7 +131,7 @@ export function toCues(
     for (const [i, trozo] of trozos.entries()) {
       const esUltimo = i === trozos.length - 1;
       const fin = esUltimo ? t.endSec : cursor + (dur * trozo.length) / totalChars;
-      partidos.push({ startSec: cursor, endSec: fin, text: trozo });
+      partidos.push({ startSec: cursor, endSec: fin, text: trozo, speaker: t.speaker });
       cursor = fin;
     }
   }
@@ -142,6 +149,7 @@ export function toCues(
     startSec: c.startSec,
     endSec: c.endSec,
     lines: wrapText(c.text, rules.maxCharsPerLine).slice(0, rules.maxLines),
+    speaker: c.speaker,
   }));
 }
 
@@ -176,11 +184,30 @@ export function toSrt(cues: readonly Cue[]): string {
         [
           String(c.index),
           `${formatTime(c.startSec, ',')} --> ${formatTime(c.endSec, ',')}`,
-          ...c.lines,
+          // SubRip **no tiene** campo de hablante. La convencion de la industria es
+          // escribirlo en el texto, asi que va como prefijo de la primera linea. Poner una
+          // linea aparte gastaria una de las dos que caben en pantalla.
+          ...(c.speaker ? conPrefijo(c.lines, `${c.speaker}: `) : c.lines),
         ].join('\r\n'),
       )
       .join('\r\n\r\n') + '\r\n'
   );
+}
+
+/** Antepone el nombre a la primera linea, sin tocar las demas. */
+function conPrefijo(lineas: readonly string[], prefijo: string): string[] {
+  if (lineas.length === 0) return [prefijo.trimEnd()];
+  return [prefijo + lineas[0], ...lineas.slice(1)];
+}
+
+/**
+ * Escapa lo que romperia el marcado de WebVTT.
+ *
+ * `<` y `&` tienen significado dentro de una etiqueta `<v>`; un texto transcrito puede
+ * traerlos y el navegador dejaria de mostrar la linea o la mostraria cortada.
+ */
+function escaparVtt(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /**
@@ -191,17 +218,32 @@ export function toSrt(cues: readonly Cue[]): string {
  */
 export function toVtt(cues: readonly Cue[]): string {
   const cuerpo = cues
-    .map((c) =>
-      [`${formatTime(c.startSec, '.')} --> ${formatTime(c.endSec, '.')}`, ...c.lines].join('\n'),
-    )
+    .map((c) => {
+      // WebVTT **si** tiene campo de hablante: `<v Nombre>`. Es la unica de las cuatro
+      // salidas donde el reproductor sabe que eso es una persona y no texto, asi que puede
+      // darle estilo o mostrarlo aparte.
+      const lineas = c.speaker
+        ? [`<v ${escaparVtt(c.speaker)}>${escaparVtt(c.lines[0] ?? '')}`, ...c.lines.slice(1).map(escaparVtt)]
+        : c.lines.map(escaparVtt);
+      return [`${formatTime(c.startSec, '.')} --> ${formatTime(c.endSec, '.')}`, ...lineas].join('\n');
+    })
     .join('\n\n');
   return `WEBVTT\n\n${cuerpo}\n`;
 }
 
 /** Texto plano, un tramo por línea. */
 export function toPlainText(timed: readonly TimedText[]): string {
-  return timed
-    .map((t) => t.text.trim())
-    .filter(Boolean)
-    .join('\n');
+  const lineas: string[] = [];
+  let ultimo: string | undefined;
+
+  for (const t of timed) {
+    const texto = t.text.trim();
+    if (!texto) continue;
+    // El nombre se escribe cuando **cambia** el hablante. Repetirlo en cada tramo llenaria
+    // la pagina de «Martin:» cuando Martin habla cinco tramos seguidos.
+    if (t.speaker && t.speaker !== ultimo) lineas.push(`${t.speaker}: ${texto}`);
+    else lineas.push(texto);
+    ultimo = t.speaker;
+  }
+  return lineas.join('\n');
 }

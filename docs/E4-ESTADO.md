@@ -1,6 +1,6 @@
 # E4 — estado
 
-Actualizado: 26 de agosto de 2026. **Fase A cerrada.**
+Actualizado: 26 de agosto de 2026. **Fase A cerrada · Fase B en el producto.**
 
 **Objetivo de la etapa:** separar y etiquetar hablantes. El plan la marcaba como *la etapa con
 más incertidumbre*, y decía que empezara averiguando en vez de construyendo porque el
@@ -157,14 +157,100 @@ Tres limitaciones concretas:
    pueden comportarse distinto, y la búsqueda exhaustiva de correspondencias del DER se planta
    arriba de ocho.
 
-## Lo que falta (Fase B)
+---
 
-- Meter la diarización en el producto: etiquetas renombrables, un color por hablante.
-- Propagar los hablantes a los exportadores: `<v Nombre>` en VTT, `Nombre:` en TXT y DOCX,
-  columna propia en CSV.
-- Medir el costo en tiempo: un embedding por tramo son decenas de inferencias más por archivo.
-- Decidir qué hacer con el hablante de más.
+# Fase B — en el producto
 
-**No hace falta la vía servidor.** El plan la tenía prevista para el caso de que lo local no
-alcanzara, con consentimiento explícito y un test que verificara que no se puede saltear. Ese
-camino queda descartado por innecesario, que es el mejor motivo para descartarlo.
+**No hizo falta la vía servidor.** El plan la tenía prevista por si lo local no alcanzaba, con
+consentimiento explícito y un test que verificara que no se puede saltear. Queda descartada por
+innecesaria, que es el mejor motivo para descartar algo.
+
+## Cómo se enciende
+
+Una casilla **apagada por defecto**, con el costo dicho antes de aceptar: 25 MB más de descarga
+y una comprobación por cada tramo de voz. Quien transcribe a una sola persona no paga por algo
+que no le sirve.
+
+Se diariza **después** de transcribir, no antes. Si el modelo de hablantes falla o el usuario se
+cansa de esperar, ya tiene su transcripción; al revés, un fallo en la parte opcional se llevaría
+puesta la principal. Por lo mismo, un error cargando ese modelo **no es fatal** en el worker.
+
+## Una invariante que ahora se comprueba
+
+Los tramos de voz y el texto son 1 a 1 y en el mismo orden por construcción: `toBlocks` reparte
+los tramos en orden y `alignBlockText` devuelve uno por tramo. Pero es una invariante **entre dos
+módulos**: si se rompiera, cada nombre quedaría pegado al texto de otra persona y no fallaría
+nada. Se verifica antes de pegar los nombres, y el error dice que es de programa, no del audio.
+
+## Cada formato con su convención
+
+| formato | cómo | por qué |
+|---|---|---|
+| **VTT** | `<v Martín>texto` | **el único con campo de verdad**: el reproductor sabe que es una persona |
+| SRT | `Martín: texto` | SubRip no tiene campo; una línea aparte gastaría una de las dos que caben |
+| TXT | `Martín: texto`, **sólo al cambiar** | repetirlo llenaría la página si Martín habla cinco tramos seguidos |
+| CSV | columna propia | en una tabla el hablante es un campo por el que se filtra, no un prefijo que hay que desarmar |
+| DOCX y PDF | bajo la hora, en negrita | los nombres forman una guía vertical sin robarle ancho al texto |
+
+Dos detalles que salieron de escribir los tests: en VTT hay que **escapar** `<` y `&` —un texto
+transcrito puede traerlos y el navegador corta la línea sin avisar— y el prefijo del SRT **se
+repite** cuando un tramo largo se parte en varios subtítulos, porque cada uno aparece solo en
+pantalla.
+
+**Sin diarización, los seis formatos salen exactamente como antes.** Hay un test por formato que
+lo comprueba: es opcional y no puede cambiar lo que ya funcionaba.
+
+## En pantalla
+
+El nombre aparece **cuando cambia** el hablante; la barra de color va en **todos** los tramos,
+que es lo que permite ver de quién es una línea sin leerla.
+
+El color nunca informa solo: el nombre va escrito al lado, porque alrededor del 8 % de los
+varones no distingue rojo de verde. Por eso la paleta puede ser de cinco colores elegidos a mano
+en vez de tonos calculados — `hsl(i * 137, …)` da colores bonitos y algunos ilegibles.
+
+**Renombrar** cambia el nombre en todos los tramos de esa persona a la vez. Corregir uno por uno
+sería inaceptable en una reunión de una hora. Y como dos hablantes con el mismo nombre quedan
+unidos, **eso es la salida para el defecto conocido**: si el modelo parte a una persona en dos,
+se les pone el mismo nombre y se juntan, color incluido. La advertencia está escrita donde se ve
+el resultado, no escondida acá.
+
+## Verificado en el navegador
+
+Con `es-multi-3min`, que tiene tres hablantes reales:
+
+| | |
+|---|---|
+| Hablantes detectados | **3** — los que hay |
+| Tramos | 40 |
+| Renombrar «Hablante 1» → «Martín» | cambió sus **17** tramos y llegó a IndexedDB |
+| SRT · VTT · CSV · TXT | `Martín:` · `<v Martín>` · columna propia · `Martín:` al cambiar |
+| DOCX · PDF | 10,5 KB con firma `PK` · 5,3 KB con `%PDF` |
+
+## Cuánto cuesta encenderla
+
+Medido en el navegador, mismo archivo y mismo equipo, con los modelos ya en caché:
+
+| | `es-multi-3min` (2 min 52 s de audio, 40 tramos) |
+|---|---|
+| Sin separar hablantes | **86 s** |
+| Separando hablantes | **115 s** |
+| **Costo** | **+29 s · +34 %** |
+
+Unos 0,7 s por tramo de voz. Es bastante menos de lo que hacía suponer la cuenta a ojo —una
+inferencia más por tramo sonaba a duplicar el tiempo— y es la razón por la que la casilla dice
+«alrededor de un tercio más» y no una advertencia vaga.
+
+Con `base-wasm`, que es el perfil sin GPU. Con WebGPU los dos números bajan, pero la
+proporción no está medida.
+
+## Lo que sigue sin resolverse
+
+1. **El solapamiento no se detecta.** Cada tramo tiene un hablante; donde hablan dos, uno se
+   pierde. Está dicho en la interfaz.
+2. **Tiende a partir de más.** El arreglo es del usuario —renombrar dos iguales— y no del
+   modelo. No es lo ideal, pero es honesto: la alternativa sería juntar de más por nuestra
+   cuenta y equivocarnos sin que se note.
+3. **`q8` en el modelo de embeddings está sin medir.** La fase A midió con `fp32`. El dtype no
+   se cambia sin volver a medir, que es la regla que dejó E0, así que esto queda anotado como
+   pendiente y no como hecho.

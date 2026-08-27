@@ -36,7 +36,7 @@ import { formatTime } from './subtitles';
 
 export const CSV_BOM = '﻿';
 
-export const CSV_HEADER = ['start_sec', 'end_sec', 'start', 'end', 'text'] as const;
+export const CSV_HEADER = ['start_sec', 'end_sec', 'start', 'end', 'speaker', 'text'] as const;
 
 /**
  * Escapa un campo según RFC 4180.
@@ -71,6 +71,9 @@ export function toCsv(timed: readonly TimedText[]): string {
         t.endSec.toFixed(3),
         formatTime(t.startSec, '.'),
         formatTime(t.endSec, '.'),
+        // Columna propia y no un prefijo del texto: en una tabla, el hablante es un campo
+        // por el que se filtra y se agrupa. Vacia cuando no se separo a los hablantes.
+        escapeField(t.speaker ?? ''),
         escapeField(texto),
       ].join(','),
     );

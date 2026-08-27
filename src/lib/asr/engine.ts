@@ -6,6 +6,9 @@ import {
   type SegmentedResult,
 } from './transcriber';
 import { SpeechDetector } from '../vad/silero';
+import { SpeakerEmbedder } from '../diar/embedder';
+import { diarize } from '../diar/diarize';
+import type { TimedText } from '../vad/align';
 import { toBlocks, totalSpeechSec, type Segment } from '../vad/segments';
 import { detectCapabilities, selectProfile, type DeviceCapabilities, type Selection } from './capabilities';
 import type { ModelProfile } from './models';
@@ -38,7 +41,12 @@ export interface TranscribeCallbacks {
 }
 
 /** Etapas del camino con tiempos, para que la interfaz pueda decir qué está pasando. */
-export type TimedPhase = 'detector' | 'detecting' | 'transcribing';
+export type TimedPhase =
+  | 'detector'
+  | 'detecting'
+  | 'transcribing'
+  | 'embedder'
+  | 'diarizing';
 
 export interface TimedCallbacks {
   onDownload?: (p: DownloadProgress) => void;
@@ -47,12 +55,22 @@ export interface TimedCallbacks {
   onDetectProgress?: (p: { processedSec: number; durationSec: number }) => void;
   /** Avance de la transcripción, **por bloques**: exacto, no estimado. */
   onBlockProgress?: (p: SegmentedProgress) => void;
+  /** Avance de la separación de hablantes: una inferencia por tramo largo. */
+  onDiarizeProgress?: (p: { done: number; total: number }) => void;
 }
 
 export interface TimedResult extends SegmentedResult {
   /** Los tramos de voz que encontró el detector, antes de agruparlos en bloques. */
   speechSegments: Segment[];
   speechSec: number;
+  /**
+   * Cuántos hablantes se encontraron, si se pidió separarlos.
+   *
+   * `undefined` significa que no se intentó; `0` no puede pasar habiendo habla. La
+   * diferencia importa: la interfaz no puede decir «no hay hablantes» cuando lo que pasó es
+   * que nadie preguntó.
+   */
+  speakerCount?: number;
 }
 
 /** Cuánto esperar a que el worker conteste antes de darlo por muerto. */
@@ -62,6 +80,7 @@ export class AsrEngine {
   private worker: Worker | null = null;
   private fallback: Transcriber | null = null;
   private fallbackDetector: SpeechDetector | null = null;
+  private fallbackEmbedder: SpeakerEmbedder | null = null;
   private mode: EngineMode = 'worker';
   private degradedReason?: string;
   private profile?: ModelProfile;
@@ -87,8 +106,7 @@ export class AsrEngine {
       });
       await this.request(
         { type: 'load', hfId: profile.hfId, device: profile.backend, dtype: profile.dtype },
-        LOAD_TIMEOUT_MS,
-        onDownload,
+        { timeoutMs: LOAD_TIMEOUT_MS, onDownload },
       );
       this.mode = 'worker';
     } catch (err) {
@@ -142,11 +160,7 @@ export class AsrEngine {
         returnTimestamps: opts.returnTimestamps,
         withProgress: !!opts.onProgress,
       },
-      0,
-      undefined,
-      opts.onProgress,
-      undefined,
-      [copy.buffer],
+      { onProgress: opts.onProgress, transfer: [copy.buffer] },
     );
 
     if (res.type !== 'done') throw new Error('Respuesta inesperada del worker');
@@ -166,10 +180,28 @@ export class AsrEngine {
    *   muchas menos palabras de las que caben en ese tiempo, algo se perdió — y eso es
    *   justamente lo que E1 midió y no podía ver.
    */
+  /**
+   * Pega los nombres de hablante al texto ya transcrito.
+   *
+   * `res.segments` y los tramos de voz son 1 a 1 y en el mismo orden **por construccion**:
+   * `toBlocks` reparte los tramos en orden y `alignBlockText` devuelve uno por tramo. Es una
+   * invariante entre dos modulos, asi que se comprueba: si se rompiera, cada nombre quedaria
+   * pegado al texto de otro y no fallaria nada.
+   */
+  private static pegarHablantes(segments: TimedText[], speakers: string[]): TimedText[] {
+    if (speakers.length !== segments.length) {
+      throw new Error(
+        `Los hablantes no corresponden con el texto: ${speakers.length} contra ` +
+          `${segments.length} tramos. Es un error de programa, no del audio.`,
+      );
+    }
+    return segments.map((s, i) => ({ ...s, speaker: speakers[i] }));
+  }
+
   async transcribeTimed(
     audio: Float32Array,
     durationSec: number,
-    opts: { language?: string } & TimedCallbacks = {},
+    opts: { language?: string; diarize?: boolean } & TimedCallbacks = {},
   ): Promise<TimedResult> {
     if (this.mode === 'main-thread') {
       if (!this.fallback) throw new Error('Motor no cargado');
@@ -193,44 +225,89 @@ export class AsrEngine {
         language: opts.language,
         onProgress: opts.onBlockProgress,
       });
-      return { ...r, speechSegments: segments, speechSec: totalSpeechSec(segments) };
+
+      let conHablantes = r.segments;
+      let speakerCount: number | undefined;
+      if (opts.diarize) {
+        this.fallbackEmbedder ??= new SpeakerEmbedder();
+        opts.onPhase?.('embedder');
+        await this.fallbackEmbedder.load({ onDownload: opts.onDownload });
+        opts.onPhase?.('diarizing');
+        const d = await diarize({
+          audio,
+          segments,
+          sampleRate: 16000,
+          embed: (trozo) => this.fallbackEmbedder!.embed(trozo),
+          onProgress: (done, total) => opts.onDiarizeProgress?.({ done, total }),
+        });
+        conHablantes = AsrEngine.pegarHablantes(r.segments, d.speakers);
+        speakerCount = d.count;
+      }
+
+      return {
+        ...r,
+        segments: conHablantes,
+        speechSegments: segments,
+        speechSec: totalSpeechSec(segments),
+        speakerCount,
+      };
     }
 
     // Camino con worker. El audio se manda UNA vez: detectar y transcribir lo comparten,
     // y transferirlo dos veces dejaría el buffer inutilizable del lado de acá.
     opts.onPhase?.('detector');
-    await this.request({ type: 'loadDetector' }, LOAD_TIMEOUT_MS, opts.onDownload);
+    await this.request({ type: 'loadDetector' }, {
+      timeoutMs: LOAD_TIMEOUT_MS,
+      onDownload: opts.onDownload,
+    });
 
     const copia = new Float32Array(audio);
-    await this.request({ type: 'setAudio', audio: copia, durationSec }, 0, undefined, undefined, undefined, [
-      copia.buffer,
-    ]);
+    await this.request(
+      { type: 'setAudio', audio: copia, durationSec },
+      { transfer: [copia.buffer] },
+    );
 
     opts.onPhase?.('detecting');
-    const det = await this.request(
-      { type: 'detect' }, 0, undefined, undefined, opts.onDetectProgress,
-    );
+    const det = await this.request({ type: 'detect' }, { onDetect: opts.onDetectProgress });
     if (det.type !== 'detected') throw new Error('Respuesta inesperada al detectar voz');
 
     opts.onPhase?.('transcribing');
     const res = await this.request(
       { type: 'transcribeSegmented', segments: det.segments, language: opts.language },
-      0,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      opts.onBlockProgress,
+      { onBlock: opts.onBlockProgress },
     );
     if (res.type !== 'segmented') throw new Error('Respuesta inesperada al transcribir');
 
+    let segments = res.segments;
+    let speakerCount: number | undefined;
+    if (opts.diarize) {
+      // Se diariza **despues** de transcribir y no antes: si el modelo de hablantes falla o
+      // el usuario se cansa de esperar, ya tiene su transcripcion. Al reves, un fallo en la
+      // parte opcional se llevaria puesta la principal.
+      opts.onPhase?.('embedder');
+      await this.request({ type: 'loadEmbedder' }, {
+        timeoutMs: LOAD_TIMEOUT_MS,
+        onDownload: opts.onDownload,
+      });
+
+      opts.onPhase?.('diarizing');
+      const dia = await this.request(
+        { type: 'diarize', segments: det.segments },
+        { onDiarize: opts.onDiarizeProgress },
+      );
+      if (dia.type !== 'diarized') throw new Error('Respuesta inesperada al separar hablantes');
+      segments = AsrEngine.pegarHablantes(res.segments, dia.speakers);
+      speakerCount = dia.count;
+    }
+
     return {
-      segments: res.segments,
+      segments,
       text: res.text,
       inferMs: res.inferMs,
       coverage: res.coverage,
       speechSegments: det.segments,
       speechSec: det.speechSec,
+      speakerCount,
     };
   }
 
@@ -242,18 +319,32 @@ export class AsrEngine {
     this.fallback = null;
     await this.fallbackDetector?.dispose();
     this.fallbackDetector = null;
+    await this.fallbackEmbedder?.dispose();
+    this.fallbackEmbedder = null;
   }
 
   /** Un intercambio con el worker, con plazo opcional y reenvío de eventos intermedios. */
+  /**
+   * Un intercambio con el worker.
+   *
+   * Las opciones van en un objeto y no como parametros sueltos: con siete posicionales, las
+   * llamadas llevaban `undefined, undefined, undefined` para llegar al que importaba, y
+   * leerlas era contar comas. Al sumar el avance de la diarizacion se volvio insostenible.
+   */
   private request(
     req: WorkerRequest,
-    timeoutMs: number,
-    onDownload?: (p: DownloadProgress) => void,
-    onProgress?: (p: TranscribeProgress) => void,
-    onDetect?: (p: { processedSec: number; durationSec: number }) => void,
-    transfer?: Transferable[],
-    onBlock?: (p: SegmentedProgress) => void,
+    opts: {
+      timeoutMs?: number;
+      onDownload?: (p: DownloadProgress) => void;
+      onProgress?: (p: TranscribeProgress) => void;
+      onDetect?: (p: { processedSec: number; durationSec: number }) => void;
+      onBlock?: (p: SegmentedProgress) => void;
+      onDiarize?: (p: { done: number; total: number }) => void;
+      transfer?: Transferable[];
+    } = {},
   ): Promise<WorkerResponse> {
+    const { onDownload, onProgress, onDetect, onBlock, onDiarize, transfer } = opts;
+    const timeoutMs = opts.timeoutMs ?? 0;
     const worker = this.worker;
     if (!worker) return Promise.reject(new Error('No hay worker'));
 
@@ -282,6 +373,10 @@ export class AsrEngine {
         }
         if (msg.type === 'blockProgress') {
           onBlock?.(msg);
+          return;
+        }
+        if (msg.type === 'diarizeProgress') {
+          onDiarize?.(msg);
           return;
         }
         cleanup();

@@ -69,6 +69,21 @@ export interface Dict {
     running: string;
     found: (n: number, habla: string) => string;
   };
+  speakers: {
+    /** La casilla para pedir que separe hablantes, antes de arrancar. */
+    label: string;
+    hint: string;
+    /** Mientras corre. */
+    loading: string;
+    running: (done: number, total: number) => string;
+    /** El resultado, arriba del editor. */
+    found: (n: number) => string;
+    /** Nombre por defecto: se numeran desde 1, que es como cuenta la gente. */
+    name: (n: number) => string;
+    rename: string;
+    /** Lo que la separacion NO hace, dicho donde se ve el resultado. */
+    caveat: string;
+  };
   store: {
     /** Que el audio quedó en el disco de esta máquina hay que decirlo, no dejarlo pasar. */
     kept: string;
@@ -201,6 +216,21 @@ const es: Dict = {
     loading: 'Preparando el detector de voz…',
     running: 'Buscando dónde hay voz…',
     found: (n, habla) => `${n} tramos de voz · ${habla} de habla`,
+  },
+  speakers: {
+    label: 'Separar hablantes',
+    hint:
+      'Marca quién dice cada cosa. Descarga 25 MB más la primera vez y tarda alrededor de un ' +
+      'tercio más: hace una comprobación por cada tramo de voz.',
+    loading: 'Preparando el modelo de hablantes…',
+    running: (done, total) => `Separando hablantes… ${done} de ${total}`,
+    found: (n) => (n === 1 ? 'Se detectó 1 hablante' : `Se detectaron ${n} hablantes`),
+    name: (n) => `Hablante ${n}`,
+    rename: 'Hacé clic en un nombre para cambiarlo.',
+    caveat:
+      'Cuando dos personas hablan a la vez, el tramo queda atribuido a una sola. Y a veces ' +
+      'parte a una misma persona en dos: si ves un hablante de más, podés renombrarlo igual ' +
+      'que al otro y quedan unidos.',
   },
   store: {
     kept:
@@ -344,6 +374,21 @@ const en: Dict = {
     loading: 'Getting the speech detector ready…',
     running: 'Finding where the speech is…',
     found: (n, habla) => `${n} speech segments · ${habla} of speech`,
+  },
+  speakers: {
+    label: 'Tell speakers apart',
+    hint:
+      'Marks who says what. Downloads 25 MB more the first time and takes about a third ' +
+      'longer: it runs one check per speech segment.',
+    loading: 'Getting the speaker model ready…',
+    running: (done, total) => `Telling speakers apart… ${done} of ${total}`,
+    found: (n) => (n === 1 ? '1 speaker detected' : `${n} speakers detected`),
+    name: (n) => `Speaker ${n}`,
+    rename: 'Click a name to change it.',
+    caveat:
+      'When two people talk at once, the segment is attributed to just one of them. And it ' +
+      'sometimes splits one person in two: if you see an extra speaker, rename it the same ' +
+      'as the other and they merge.',
   },
   store: {
     kept:

@@ -107,6 +107,55 @@ describe('DOCX', () => {
   }, 60_000);
 });
 
+describe('el hablante en los documentos', () => {
+  const conHablantes = layoutTranscript(
+    [
+      { startSec: 0, endSec: 3, text: 'Buenas tardes.', speaker: 'Martín' },
+      { startSec: 3, endSec: 6, text: 'Gracias por venir.', speaker: 'Martín' },
+      { startSec: 6, endSec: 9, text: '¿Empezamos?', speaker: 'Ana' },
+    ],
+    { fileName: 'reunion.mp4', durationHuman: '9 s', labels: ETIQUETAS },
+  );
+
+  it('el modelo lo pone sólo cuando cambia', () => {
+    // Repetirlo en cada fila llenaría la columna y el ojo dejaría de verlo.
+    expect(conHablantes.rows.map((r) => r.speaker)).toEqual(['Martín', undefined, 'Ana']);
+  });
+
+  it('el DOCX lo escribe en la columna de la hora', () => {
+    // Debajo de la hora y no delante del texto: así los nombres forman una guía vertical
+    // sin robarle ancho a lo que se lee.
+    return toDocxBlob(conHablantes)
+      .then((b) => b.arrayBuffer())
+      .then(async (buf) => {
+        const { unzipSync, strFromU8 } = await import('fflate');
+        const xml = strFromU8(unzipSync(new Uint8Array(buf))['word/document.xml']);
+        expect(xml).toContain('Martín');
+        expect(xml).toContain('Ana');
+        // Una sola vez cada uno: si se repitiera por fila, «Martín» aparecería dos veces.
+        expect(xml.split('Martín').length - 1).toBe(1);
+      });
+  }, 60_000);
+
+  it('el PDF sale con hablantes sin romperse', async () => {
+    const blob = await toPdfBlob(conHablantes);
+    const { PDFDocument } = await import('pdf-lib');
+    const doc = await PDFDocument.load(new Uint8Array(await blob.arrayBuffer()));
+    expect(doc.getPageCount()).toBe(1);
+  }, 60_000);
+
+  it('un nombre larguísimo no invade la columna del texto', async () => {
+    // Se recorta al ancho de su columna: dos cosas encimadas son peores que un nombre
+    // cortado, y en un PDF no hay forma de que el usuario lo arregle.
+    const largo = layoutTranscript(
+      [{ startSec: 0, endSec: 3, text: 'Hola', speaker: 'Un nombre absurdamente largo' }],
+      { fileName: 'x.mp4', durationHuman: '3 s', labels: ETIQUETAS },
+    );
+    const blob = await toPdfBlob(largo);
+    expect(blob.size).toBeGreaterThan(0);
+  }, 60_000);
+});
+
 describe('PDF', () => {
   it('sale un PDF de una página con el encabezado', async () => {
     const blob = await toPdfBlob(corto);

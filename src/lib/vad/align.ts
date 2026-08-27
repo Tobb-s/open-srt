@@ -31,6 +31,14 @@ export interface TimedText {
   startSec: number;
   endSec: number;
   text: string;
+  /**
+   * Quien habla, si se separo a los hablantes.
+   *
+   * Opcional a proposito: la diarizacion cuesta una inferencia por tramo y no todo el mundo
+   * la necesita. Sin ella, todo lo demas funciona igual — y cada exportador sabe omitir el
+   * nombre en vez de escribir uno vacio.
+   */
+  speaker?: string;
 }
 
 /**
