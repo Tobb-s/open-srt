@@ -14,6 +14,11 @@ import type { VideoProbeResult } from '@/lib/video/probe';
  *
  * Arranca sola: si hubiera que apretar un botón, correrla en otro navegador exigiría poder
  * hacer clic, y el panel de un navegador ajeno puede ser de sólo lectura.
+ *
+ * Con `?guardar=1` además **descarga el resultado al terminar**, sin que nadie toque nada.
+ * Es la forma de recoger la medición de un navegador que no se puede controlar: leerla de
+ * una captura de pantalla no siempre se puede —una ventana ajena tapando la pantalla deja la
+ * captura enmascarada— y en producción no hay ninguna ruta que escriba archivos.
  */
 
 function Veredicto({ r }: { r: VideoProbeResult }) {
@@ -51,6 +56,22 @@ export default function VideoProbePage() {
   // ponerlo desde adentro del efecto sería un `setState` sincrónico en el montaje.
   const [fase, setFase] = useState('grabando y decodificando… (unos 25 s)');
 
+  const descargar = useCallback((r: VideoProbeResult) => {
+    const blob = new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const nombre = /Firefox/.test(r.userAgent)
+      ? 'firefox'
+      : /Edg\//.test(r.userAgent)
+        ? 'edge'
+        : /Chrome/.test(r.userAgent)
+          ? 'chrome'
+          : 'otro';
+    a.download = `E3-video-${nombre}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, []);
+
   useEffect(() => {
     let vivo = true;
     void runVideoProbe((f) => {
@@ -69,6 +90,12 @@ export default function VideoProbePage() {
           .then((x) => (x.ok ? x.json() : null))
           .catch(() => null);
         if (!vivo) return;
+        // En producción la ruta que escribe archivos no existe: ahí el resultado se baja.
+        if (!guardado && new URLSearchParams(window.location.search).has('guardar')) {
+          descargar(r);
+          setFase('listo · descargado');
+          return;
+        }
         setFase(guardado ? `listo · guardado en ${guardado.guardado}` : 'listo');
       })
       .catch((e: Error) => {
@@ -79,24 +106,8 @@ export default function VideoProbePage() {
     return () => {
       vivo = false;
     };
-  }, []);
+  }, [descargar]);
 
-  const descargar = useCallback(() => {
-    if (!result) return;
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    const nombre = /Firefox/.test(result.userAgent)
-      ? 'firefox'
-      : /Edg\//.test(result.userAgent)
-        ? 'edge'
-        : /Chrome/.test(result.userAgent)
-          ? 'chrome'
-          : 'otro';
-    a.download = `E3-video-${nombre}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }, [result]);
 
   return (
     <main className="mx-auto max-w-4xl space-y-4 p-8 font-sans">
@@ -114,7 +125,7 @@ export default function VideoProbePage() {
         <>
           <Veredicto r={result} />
           <button
-            onClick={descargar}
+            onClick={() => descargar(result)}
             className="rounded-full bg-neutral-900 px-5 py-2 text-white"
           >
             Descargar JSON
