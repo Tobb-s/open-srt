@@ -24,3 +24,6 @@ benchmarks/
 # Vercel usa este archivo, NO .gitignore, así que sin esta línea se suben igual.
 .vad-tmp/
 
+
+# El holdout de E4: material de medición, no producto.
+public/corpus-holdout/

@@ -1,0 +1,583 @@
+{
+  "note": "Quien habla en que segundo, en los items multi-hablante. Sale del mismo lugar donde se colocan los trozos de audio, y cada item se verifico recalculando su SHA-256 contra el manifiesto. Los tramos se solapan `overlapSec` en cada transicion: ahi hablan dos a la vez, y es habla solapada de verdad.",
+  "builtBy": "scripts/build-corpus.mjs --linea-de-tiempo",
+  "seed": 20260823,
+  "items": [
+    {
+      "id": "es-multi-3min",
+      "sha256": "007dd6c6f0383f935b9be412aafef67443bc93071b3e65d710f08e51372ca453",
+      "durationSec": 172.15,
+      "overlapSec": 0.25,
+      "turns": [
+        {
+          "speaker": "arm_00610",
+          "startSec": 0.68,
+          "endSec": 2.84
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 4.8273,
+          "endSec": 7.2073
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 8.3853,
+          "endSec": 12.5053
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 14.6859,
+          "endSec": 15.9859
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 16.5859,
+          "endSec": 17.9059
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 19.7479,
+          "endSec": 22.5079
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 24.6886,
+          "endSec": 26.6086
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 28.8799,
+          "endSec": 30.2399
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 32.1232,
+          "endSec": 35.6632
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 37.9265,
+          "endSec": 38.5065
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 38.7065,
+          "endSec": 41.1465
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 41.4665,
+          "endSec": 42.5465
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 44.6445,
+          "endSec": 46.7445
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 49.6198,
+          "endSec": 51.8398
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 53.3911,
+          "endSec": 55.6511
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 57.7384,
+          "endSec": 59.5384
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 59.8384,
+          "endSec": 62.3984
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 63.6377,
+          "endSec": 64.9778
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 65.2378,
+          "endSec": 66.2378
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 69.4171,
+          "endSec": 71.0571
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 72.5097,
+          "endSec": 75.5297
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 75.7497,
+          "endSec": 76.5297
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 77.7957,
+          "endSec": 83.3957
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 84.9003,
+          "endSec": 85.9003
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 86.1203,
+          "endSec": 86.7803
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 86.9803,
+          "endSec": 87.5403
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 88.2603,
+          "endSec": 88.6203
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 91.8276,
+          "endSec": 93.7876
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 96.3269,
+          "endSec": 97.7469
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 99.1236,
+          "endSec": 102.7636
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 105.2096,
+          "endSec": 106.2296
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 106.4696,
+          "endSec": 107.2096
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 109.5356,
+          "endSec": 110.9156
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 111.1356,
+          "endSec": 111.9156
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 114.4762,
+          "endSec": 116.0962
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 117.5688,
+          "endSec": 119.9288
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 120.3488,
+          "endSec": 122.3488
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 124.6681,
+          "endSec": 127.0481
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 127.7481,
+          "endSec": 129.5681
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 131.9314,
+          "endSec": 132.6114
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 132.8914,
+          "endSec": 134.2914
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 136.6361,
+          "endSec": 137.3961
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 137.6161,
+          "endSec": 138.3961
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 140.1554,
+          "endSec": 142.3954
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 142.8954,
+          "endSec": 144.3754
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 146.0347,
+          "endSec": 150.8547
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 152.7927,
+          "endSec": 154.8727
+        },
+        {
+          "speaker": "arm_00610",
+          "startSec": 157.776,
+          "endSec": 159.036
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 161.5833,
+          "endSec": 162.5033
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 162.7433,
+          "endSec": 164.3633
+        },
+        {
+          "speaker": "arm_01523",
+          "startSec": 165.8013,
+          "endSec": 167.3413
+        },
+        {
+          "speaker": "arm_02484",
+          "startSec": 169.0539,
+          "endSec": 170.9539
+        }
+      ]
+    },
+    {
+      "id": "en-multi-3min",
+      "sha256": "2ed8c9aa9d6d0f8b98600c18a9bd840d5c39d82857086a4efbfbf3ebc0595af2",
+      "durationSec": 173.723,
+      "overlapSec": 0.25,
+      "turns": [
+        {
+          "speaker": "irm_02484",
+          "startSec": 1.08,
+          "endSec": 2.56
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 2.76,
+          "endSec": 3.38
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 4.7873,
+          "endSec": 5.5873
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 5.9073,
+          "endSec": 7.7073
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 8.1073,
+          "endSec": 9.2273
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 9.4873,
+          "endSec": 10.6073
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 12.0946,
+          "endSec": 14.8746
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 15.3346,
+          "endSec": 16.1946
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 16.3946,
+          "endSec": 17.1546
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 17.5546,
+          "endSec": 18.7346
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 21.1219,
+          "endSec": 24.6419
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 26.4679,
+          "endSec": 27.9279
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 28.4079,
+          "endSec": 31.8879
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 33.4366,
+          "endSec": 38.0566
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 38.5566,
+          "endSec": 39.3166
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 41.9799,
+          "endSec": 45.0999
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 46.7605,
+          "endSec": 47.1605
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 47.4605,
+          "endSec": 48.8405
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 49.0405,
+          "endSec": 50.4605
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 51.1605,
+          "endSec": 52.1205
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 53.9598,
+          "endSec": 55.5998
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 56.1398,
+          "endSec": 58.3198
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 58.8398,
+          "endSec": 61.7598
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 63.3884,
+          "endSec": 65.8884
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 66.4484,
+          "endSec": 67.1084
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 67.5484,
+          "endSec": 68.1084
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 68.6684,
+          "endSec": 70.2484
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 70.5084,
+          "endSec": 71.5884
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 73.2824,
+          "endSec": 75.5624
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 75.7824,
+          "endSec": 77.0024
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 77.2424,
+          "endSec": 78.4424
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 79.4778,
+          "endSec": 80.1577
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 82.0637,
+          "endSec": 85.8438
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 86.4437,
+          "endSec": 87.4838
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 87.7438,
+          "endSec": 89.2438
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 90.9698,
+          "endSec": 93.0897
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 93.5897,
+          "endSec": 96.6298
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 98.3451,
+          "endSec": 101.9851
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 103.1644,
+          "endSec": 106.6244
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 106.9844,
+          "endSec": 107.1244
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 107.3444,
+          "endSec": 107.7644
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 110.057,
+          "endSec": 113.797
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 115.991,
+          "endSec": 118.891
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 120.445,
+          "endSec": 125.545
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 128.4256,
+          "endSec": 129.3456
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 130.0456,
+          "endSec": 130.6656
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 131.5456,
+          "endSec": 133.3056
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 133.7656,
+          "endSec": 134.7056
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 136.7382,
+          "endSec": 138.6583
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 138.9983,
+          "endSec": 140.3183
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 141.6456,
+          "endSec": 144.4056
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 146.3396,
+          "endSec": 149.5796
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 150.2596,
+          "endSec": 152.2196
+        },
+        {
+          "speaker": "mif_02484",
+          "startSec": 153.9509,
+          "endSec": 157.9109
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 159.0515,
+          "endSec": 161.6115
+        },
+        {
+          "speaker": "mim_02484",
+          "startSec": 161.8515,
+          "endSec": 162.0115
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 163.7508,
+          "endSec": 165.3508
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 166.7434,
+          "endSec": 169.3634
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 169.5634,
+          "endSec": 170.4234
+        },
+        {
+          "speaker": "irm_02484",
+          "startSec": 170.9034,
+          "endSec": 172.8034
+        }
+      ]
+    }
+  ]
+}

@@ -61,3 +61,9 @@ next-env.d.ts
 
 # Restos de importar el script de mutacion desde Python.
 __pycache__/
+
+# El holdout multi-hablante de E4: se regenera con `--multi-holdout` desde las
+# mismas fuentes y con la misma semilla, igual que el corpus.
+/public/corpus-holdout/*.wav
+# El modelo de embeddings, bajado para inspeccionarlo.
+/.spk-tmp/
