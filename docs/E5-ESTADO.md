@@ -157,7 +157,21 @@ decodificar de a uno.
 
 ---
 
-## Lo que falta de E5
+## Lo que queda fuera, por decisión (27/08/2026)
+
+Consultado el alcance, la respuesta fue **«sólo quiero transcripción»**. Así que lo que sigue
+**no se hace**, y no por no poder:
+
+- **Resumen con IA.** Era el punto donde la promesa se tensaba —local significa otro modelo
+  grande, por API significa mandar la transcripción a un tercero—. Queda sin construir, y sin
+  la decisión de privacidad que habría exigido.
+- **Camino de servidor opcional.**
+- **El archivo de dos horas de punta a punta.** Lo comprobado son 30 minutos, con el techo de
+  memoria medido aparte hasta las dos horas.
+
+No están pendientes: están descartados. Si alguna vez vuelven, vuelven con su medición.
+
+## Lo que falta de E5 — histórico
 - **Traducción.** Opus-MT de Helsinki-NLP es Apache 2.0 y son modelos por par de idiomas, así
   que se baja sólo el que hace falta. Que la calidad alcance para subtítulos es **hipótesis**.
 - **Resumen con IA.** Acá la promesa se tensa: local significa otro modelo grande; por API
