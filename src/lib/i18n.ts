@@ -287,7 +287,7 @@ const es: Dict = {
       'pestaña. **La página va a quedar congelada mientras trabaja** — no está trabada.',
   },
   footer: {
-    stage: 'Etapa 3: audio y video a texto, subtítulos y documentos. Separar hablantes viene después.',
+    stage: 'Etapa 4: audio y video a texto, con tiempos, hablantes y seis formatos. Traducir y resumir vienen después.',
     source: 'Código abierto',
   },
 };
@@ -444,7 +444,7 @@ const en: Dict = {
       'will freeze while it works** — it is not stuck.',
   },
   footer: {
-    stage: 'Stage 3: audio and video to text, subtitles and documents. Telling speakers apart comes later.',
+    stage: 'Stage 4: audio and video to text, with timings, speakers and six formats. Translating and summarising come later.',
     source: 'Open source',
   },
 };
