@@ -24,5 +24,3 @@ benchmarks/
 # Vercel usa este archivo, NO .gitignore, así que sin esta línea se suben igual.
 .vad-tmp/
 
-# Muestras de la prueba de E3: se generan localmente, no son producto.
-public/muestras/

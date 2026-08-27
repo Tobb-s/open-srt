@@ -58,8 +58,6 @@ next-env.d.ts
 # 31 MB que no tiene sentido versionar: salen del paquete instalado, no de acá.
 /public/ort/
 
-# Muestras de video generadas por el navegador para la prueba de E3.
-/public/muestras/
 
 # Restos de importar el script de mutacion desde Python.
 __pycache__/

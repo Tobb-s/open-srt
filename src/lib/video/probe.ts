@@ -23,8 +23,20 @@
  * no ruido con la duración correcta.
  *
  * Tiene también una limitación que hay que declarar: `MediaRecorder` produce lo que ese
- * navegador sabe producir. No genera `.mov` de un teléfono ni `.mkv`, así que esos
- * contenedores quedan sin probar por este camino y necesitan archivos reales.
+ * navegador sabe producir. No genera `.mkv`, así que ese contenedor queda sin probar y
+ * necesita un archivo real.
+ *
+ * ── Las muestras compartidas ──
+ *
+ * Los archivos de `public/muestras/` **se versionan y se despliegan**. Son 350 KB y hacen
+ * que la prueba se pueda correr en cualquier navegador y en cualquier máquina, contra los
+ * mismos bytes. Sin eso, cada navegador medía lo que él mismo sabía grabar — y Firefox, que
+ * no graba mp4, quedaba sin poder responder la pregunta que más importaba.
+ *
+ * Entre ellos hay un `.mov` que es **byte por byte el mismo mp4, renombrado**. No prueba los
+ * átomos propios de QuickTime; prueba otra cosa concreta y útil: si el navegador decide por
+ * el contenido o por la extensión. Un `.mov` de teléfono es ISOBMFF igual que un mp4, así
+ * que si el navegador mira el contenido, ese caso queda cubierto.
  */
 
 /** Las ráfagas de tono, en segundos. Es la verdad contra la que se compara. */
