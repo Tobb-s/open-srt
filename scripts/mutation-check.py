@@ -13,8 +13,9 @@ son una hora larga. Validar seis mutantes nuevos con eso desalienta correrlo, y 
 de mutación que no se corre no prueba nada. El filtro compara contra el nombre del mutante y
 contra el archivo que toca.
 
-**Ojo con interrumpirlo**: si el proceso muere entre que muta y restaura, el archivo queda
-mutado. Se recupera con `git checkout -- <archivo>`.
+**Si lo interrumpen**: mientras un archivo esta mutado queda al lado un respaldo `.mutbak`,
+y la corrida siguiente lo restaura sola y lo avisa. No hace falta git — que ademas no
+serviria con un modulo todavia sin seguimiento.
 """
 
 import subprocess
@@ -22,6 +23,25 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+#: Sufijo del respaldo que se deja mientras un archivo esta mutado. Existir es la senal de
+#: que la corrida no llego a restaurar.
+RESPALDO = ".mutbak"
+
+
+def restaurar_respaldos() -> list[str]:
+    """Deshace mutaciones que quedaron pegadas porque la corrida anterior murio.
+
+    Se apoya en el respaldo lateral y no en git: los modulos nuevos pueden no estar todavia
+    bajo seguimiento, y ahi `git checkout` no restaura nada.
+    """
+    out = []
+    for bak in sorted(ROOT.rglob("*" + RESPALDO)):
+        destino = bak.with_name(bak.name[: -len(RESPALDO)])
+        destino.write_text(bak.read_text(encoding="utf-8"), encoding="utf-8")
+        bak.unlink()
+        out.append(destino.name)
+    return out
 NORM = ROOT / "src" / "lib" / "bench" / "normalize.ts"
 WER = ROOT / "src" / "lib" / "bench" / "wer.ts"
 MODELS_F = ROOT / "src" / "lib" / "bench" / "models.ts"
@@ -54,6 +74,16 @@ CLUS = ROOT / "src" / "lib" / "diar" / "cluster.ts"
 DIAR = ROOT / "src" / "lib" / "diar" / "diarize.ts"
 COLOR = ROOT / "src" / "lib" / "diar" / "colores.ts"
 SUBS2 = ROOT / "src" / "lib" / "export" / "subtitles.ts"
+
+# Paso 2 del rediseño: la lógica que vivía dentro de `Transcribe.tsx`. Vive acá
+# justamente para que estos mutantes puedan alcanzarla — dentro del componente, ni la
+# suite ni la prueba de mutación miraban.
+COLA = ROOT / "src" / "lib" / "sesion" / "cola.ts"
+ARMAR = ROOT / "src" / "lib" / "sesion" / "armar.ts"
+
+# Paso 4: la politica de almacenamiento que reemplazo al tope de cinco sesiones.
+PRESU = ROOT / "src" / "lib" / "store" / "presupuesto.ts"
+PAQUETE = ROOT / "src" / "lib" / "export" / "paquete.ts"
 
 # (nombre, archivo, texto original, texto mutado, qué debería atrapar)
 MUTANTS = [
@@ -687,6 +717,194 @@ MUTANTS = [
         '    if (!this.pipe) return [...segments];',
         'el usuario creeria que esta leyendo una traduccion',
     ),
+    # ── Paso 2 del rediseño: la cola y el armado de la sesión ──
+    #
+    # Todo lo de acá abajo rompe algo que **no lanza ninguna excepción**: la pantalla sigue
+    # funcionando y muestra otra cosa. Es el modo de fallo que este proyecto persigue desde
+    # E1, y hasta ahora ningún instrumento lo miraba porque el código vivía en el componente.
+    (
+        "la cola transcribe siempre el primero",
+        COLA,
+        "const preparado = i === 0 ? primero : await deps.preparar(items[i].blob);",
+        "const preparado = primero;",
+        "la captura vieja de React: diez archivos, diez veces el mismo audio",
+    ),
+    (
+        "la cola vuelve a decodificar el primero",
+        COLA,
+        "const preparado = i === 0 ? primero : await deps.preparar(items[i].blob);",
+        "const preparado = await deps.preparar(items[i].blob);",
+        "decodifica de nuevo el archivo que ya estaba listo",
+    ),
+    (
+        "un archivo roto detiene la fila",
+        COLA,
+        "    } catch (e) {\n      // Decodificar puede tirar",
+        "    } catch (e) {\n      throw e;\n      // Decodificar puede tirar",
+        "el tercero dañado se lleva puestos los que faltan",
+    ),
+    (
+        "un archivo que falla se marca como listo",
+        COLA,
+        "deps.marcar(i, { estado: ok ? 'listo' : 'error' });",
+        "deps.marcar(i, { estado: 'listo' });",
+        "'Cola: 3 de 3 listos' con uno que falló",
+    ),
+    (
+        "la corrida a medias se le pasa a todos",
+        COLA,
+        "await deps.transcribir(preparado, i === 0 ? retomar : null);",
+        "await deps.transcribir(preparado, retomar);",
+        "el segundo arranca desde bloques de otro audio: tiempos corridos",
+    ),
+    (
+        "no se avisa cuál está en curso",
+        COLA,
+        "    deps.marcar(i, { estado: 'procesando' });",
+        "",
+        "la fila se ve congelada mientras trabaja",
+    ),
+    (
+        "con un archivo la cola no transcribe",
+        COLA,
+        "  if (items.length <= 1) {\n    await deps.transcribir(primero, retomar);",
+        "  if (items.length <= 1) {",
+        "elegir un solo archivo no hace nada",
+    ),
+    (
+        "la cola corre en paralelo",
+        COLA,
+        "      const ok = await deps.transcribir(preparado, i === 0 ? retomar : null);",
+        "      const ok = await Promise.resolve(deps.transcribir(preparado, i === 0 ? retomar : null)).then((x) => x);",
+        "control: reescritura equivalente, el test NO debe fallar",
+    ),
+    (
+        "listos cuenta los que fallaron",
+        COLA,
+        "return items.filter((x) => x.estado === 'listo').length;",
+        "return items.filter((x) => x.estado !== 'pendiente').length;",
+        "'3 de 3 listos' contando errores",
+    ),
+    (
+        "los hablantes se numeran desde 0",
+        ARMAR,
+        "defaultSpeakerName(x.speaker, opts.nombreHablante)",
+        "x.speaker",
+        "la pantalla dice '0' y '1' en vez de 'Hablante 1' y 'Hablante 2'",
+    ),
+    (
+        "la sesion guardada arrastra los campos internos",
+        ARMAR,
+        "    segments: cargada.segments.map((x) => ({\n      startSec: x.startSec,\n      endSec: x.endSec,\n      text: x.text,\n      speaker: x.speaker,\n    })),",
+        "    segments: cargada.segments.map((x) => ({ ...x })),",
+        "sessionId, index y edited terminan en el CSV del usuario",
+    ),
+    (
+        "se olvida que tramos venian corregidos",
+        ARMAR,
+        "new Set(cargada.segments.filter((x) => x.edited).map((x) => x.index))",
+        "new Set()",
+        "una correccion a mano parece salida del modelo",
+    ),
+    (
+        "el video restaurado se abre como audio",
+        ARMAR,
+        "  return blob?.type.startsWith('video/') ?? false;",
+        "  return false;",
+        "una reunion grabada pierde la imagen al reabrirla",
+    ),
+    (
+        "no guardado y sin audio se confunden",
+        ARMAR,
+        "  if (!guardada) return null;",
+        "  if (!guardada) return textos.sinAudio;",
+        "dice 'el audio no entro' cuando no se guardo nada",
+    ),
+    (
+        "se guarda una transcripcion vacia",
+        ARMAR,
+        "return segments.some((s) => s.text.trim());",
+        "return true;",
+        "la proxima visita ofrece recuperar una pantalla vacia",
+    ),
+    # ── Paso 4 del rediseno: el presupuesto del audio y el paquete ──
+    (
+        "vuelve el borrador automatico de sesiones",
+        STORE,
+        "    // Acá estaba `await this.prune()`, que borraba la sesión más vieja.",
+        "    for (const vieja of (await this.list()).slice(5)) await this.remove(vieja.id);\n    // Acá estaba `await this.prune()`, que borraba la sesión más vieja.",
+        "el guardian del borrado: si sobrevive, la prueba de que no se borra es decorado",
+    ),
+    (
+        "el presupuesto se da vuelta",
+        PRESU,
+        "return usado + bytes + reservaDe(quota) <= quota;",
+        "return usado + bytes + reservaDe(quota) >= quota;",
+        "niega el audio que entra y acepta el que no",
+    ),
+    (
+        "no se deja reserva libre",
+        PRESU,
+        "return usado + bytes + reservaDe(quota) <= quota;",
+        "return usado + bytes <= quota;",
+        "llena la cuota y el navegador tira la cache del modelo",
+    ),
+    (
+        "el presupuesto falla cerrado",
+        PRESU,
+        "if (!quota || !Number.isFinite(quota)) return true;",
+        "if (!quota || !Number.isFinite(quota)) return false;",
+        "un navegador sin estimate() se queda sin audio para siempre",
+    ),
+    (
+        "la reserva pierde su piso",
+        PRESU,
+        "return Math.max(150 * MB, cuota * 0.1);",
+        "return cuota * 0.1;",
+        "en una cuota chica la reserva no alcanza ni para el modelo",
+    ),
+    (
+        "liberar audio se lleva el texto",
+        STORE,
+        "    store.put({\n      ...actual,\n      audioStored: false,\n      audioBytes: undefined,\n      audioMotivo: 'liberado' as MotivoSinAudio,\n    });",
+        "    store.delete(sessionId);",
+        "soltar el audio borra la transcripcion entera",
+    ),
+    (
+        "renombrar acepta el vacio",
+        STORE,
+        "    if (!limpio) return null;",
+        "",
+        "una fila sin nombre que el usuario no puede volver a encontrar",
+    ),
+    (
+        "los nombres del zip no se desambiguan",
+        PAQUETE,
+        "return veces === 0 ? base : `${base} (${veces + 1})`;",
+        "return base;",
+        "bajar nueve archivos creyendo que son diez",
+    ),
+    (
+        "el zip distingue mayusculas al desambiguar",
+        PAQUETE,
+        "const clave = base.toLowerCase();",
+        "const clave = base;",
+        "Reunion.txt y reunion.txt se pisan en Windows",
+    ),
+    (
+        "un nombre que se limpia a nada queda sin nombre",
+        PAQUETE,
+        "return limpio || 'transcripcion';",
+        "return limpio;",
+        "un archivo llamado .txt, oculto en Unix",
+    ),
+    (
+        "el presupuesto se reescribe sin cambiar nada",
+        PRESU,
+        "return usado + bytes + reservaDe(quota) <= quota;",
+        "return !(usado + bytes + reservaDe(quota) > quota);",
+        "control: equivalente, el test NO debe fallar",
+    ),
 ]
 
 
@@ -721,6 +939,15 @@ def main() -> int:
     if filtros:
         print(f"Filtrando por {filtros}: {len(seleccion)} de {len(MUTANTS)} mutantes\n")
 
+    # ¿Quedo algo mutado de una corrida que murio? Se restaura ANTES de comprobar los
+    # patrones: si no, el archivo mutado haria que su propio mutante figure como huerfano.
+    rescatados = restaurar_respaldos()
+    if rescatados:
+        print("Habia archivos mutados de una corrida anterior. Restaurados:")
+        for r in rescatados:
+            print(f"  - {r}")
+        print()
+
     # Antes de correr nada: que cada mutante enganche donde dice. Un patron que ya no existe
     # —porque el codigo de alrededor cambio— se reportaba recien al llegarle el turno, media
     # hora despues, y como si fuera un sobreviviente. Esto lo dice en un segundo.
@@ -752,11 +979,20 @@ def main() -> int:
             survivors.append(name)
             continue
 
+        # El respaldo va a disco ANTES de mutar. El `finally` de abajo no alcanza: si el
+        # proceso muere por una senal que no se puede atrapar —un `timeout`, un Ctrl-C
+        # duro, el corredor que lo da de baja— el archivo queda mutado y en silencio. Paso
+        # de verdad al agregar estos mutantes: la suite quedo en rojo por una mutacion
+        # pegada, y como el archivo era nuevo, el `git checkout` que documentaba el
+        # encabezado no servia para restaurarlo.
+        respaldo = path.with_suffix(path.suffix + RESPALDO)
+        respaldo.write_text(src, encoding="utf-8")
         path.write_text(src.replace(original, mutated, 1), encoding="utf-8")
         try:
             passed, failed = run_suite()
         finally:
             path.write_text(src, encoding="utf-8")  # restaurar siempre
+            respaldo.unlink(missing_ok=True)
 
         if passed:
             print(f"[SOBREVIVE] {name}")

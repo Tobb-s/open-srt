@@ -1,26 +1,257 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/**
+ * Los tokens de diseño. LA fuente de verdad del color y la letra.
+ *
+ * ── Por qué existe este archivo ──
+ *
+ * Hasta el paso 1 del rediseño, cada pantalla nombraba sus colores en el JSX
+ * (`text-neutral-500 dark:text-neutral-400`, repetido con variaciones que no eran decisión
+ * sino accidente) y la tipografía era Arial: la línea `font-family: Arial` de la plantilla
+ * de create-next-app sobrevivió cinco etapas pisando un `--font-geist-sans` que además
+ * nadie definía, porque el layout nunca cargó `next/font`.
+ *
+ * Ahora cada color tiene un nombre por su ROL, un valor claro y uno oscuro, acá y en
+ * ningún otro lado. El JSX dice `text-apagado` y no sabe cuánto vale; cambiar la paleta
+ * (paso 3) es cambiar este archivo.
+ *
+ * ── De dónde salen los valores ──
+ *
+ * Son EXACTAMENTE los oklch de la paleta de Tailwind 4 que las clases sueltas ya usaban
+ * (anotados al lado de cada uno): el paso 1 cambia la letra y unifica el sistema, no la
+ * paleta. Las únicas excepciones son de contraste, marcadas con «⚠ contraste»: pares que
+ * medidos no llegaban a 4,5:1 y se corrigieron al valor vecino que sí llega. La medición
+ * está en `scripts/contrast-check.mjs`, que falla si un par declarado baja de 4,5:1.
+ *
+ * ── El modo oscuro, en un solo lugar ──
+ *
+ * Antes vivía en dos que no se hablaban: el layout usaba pares `dark:` de Tailwind y este
+ * archivo definía `--background` por `prefers-color-scheme` que nadie consumía. Ahora el
+ * tema se decide acá una vez; las utilidades (`bg-fondo`, `text-tinta`) apuntan a la
+ * variable y cambian solas, sin pares `dark:` en el JSX.
+ */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  /* ── Neutros ── */
+  --fondo: #ffffff;
+  --tinta: oklch(20.5% 0 0); /* neutral-900 */
+  --tinta-2: oklch(43.9% 0 0); /* neutral-600 — texto secundario */
+  --apagado: oklch(54.5% 0 0); /* ⚠ contraste: neutral-500 daba 4,34:1 sobre acento-fondo (el
+     marcador «editado» dentro del tramo activo); #707070 es el primer gris que pasa. */
+  --deshabilitado: oklch(70.8% 0 0); /* neutral-400 — SÓLO controles deshabilitados; exento del 4,5:1 */
+  --borde: oklch(92.2% 0 0); /* neutral-200 */
+  --borde-fuerte: oklch(87% 0 0); /* neutral-300 — bordes de controles */
+  --superficie: oklch(98.5% 0 0); /* neutral-50 — paneles */
+  --superficie-2: oklch(97% 0 0); /* neutral-100 — hover de controles */
+  --campo: #ffffff; /* fondo OPACO de campos y de texto en foco: tiene que tapar lo de abajo */
+  --pista: oklch(92.2% 0 0); /* neutral-200 — el riel de las barras de avance */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* El botón de contraste («Elegir archivo»): tinta invertida, no acento */
+  --inverso-fondo: oklch(20.5% 0 0); /* neutral-900 */
+  --inverso-tinta: #ffffff;
+
+  /* ── Acento ── */
+  --acento: oklch(54.6% 0.245 262.881); /* blue-600 — la acción principal */
+  --acento-contraste: #ffffff; /* texto sobre --acento */
+  --acento-tinta: oklch(48.8% 0.243 264.376); /* blue-700 — texto/enlaces de acento */
+  --acento-fondo: oklch(97% 0.014 254.604); /* blue-50 — avisos, tramo activo */
+  --acento-borde: oklch(88.2% 0.059 254.128); /* blue-200 */
+  --foco: oklch(62.3% 0.214 259.815); /* blue-500 — anillo de foco y borde al arrastrar */
+
+  /* ── Semánticos: separados del acento a propósito ── */
+  --ok: oklch(52.7% 0.154 150.069); /* green-700 */
+  --error: oklch(50.5% 0.213 27.518); /* red-700 */
+  --error-fondo: oklch(97.1% 0.013 17.38); /* red-50 */
+  --error-texto: oklch(39.6% 0.141 25.723); /* red-900 */
+  --advertencia-fondo: oklch(98.7% 0.022 95.277); /* amber-50 */
+  --advertencia-titulo: oklch(41.4% 0.112 45.904); /* amber-900 */
+  --advertencia-texto: oklch(47.3% 0.137 46.201); /* amber-800 */
+  --advertencia-borde: oklch(87.9% 0.169 91.605); /* amber-300 */
+  --advertencia-borde-fuerte: oklch(82.8% 0.189 84.429); /* amber-400 */
+
+  /* ── Sombra y duraciones ──
+     Hoy ninguna pantalla usa sombra; el token existe para que cuando el paso 3 la
+     necesite salga de acá y no de una clase inventada en el momento. */
+  --sombra-caja: 0 1px 2px oklch(20.5% 0 0 / 6%), 0 8px 24px -16px oklch(20.5% 0 0 / 25%);
+  --duracion-rapida: 150ms;
+  --duracion-media: 500ms; /* la barra de avance: lo bastante lenta para no vibrar entre bloques */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --fondo: oklch(14.5% 0 0); /* neutral-950 */
+    --tinta: oklch(97% 0 0); /* neutral-100 */
+    --tinta-2: oklch(70.8% 0 0); /* neutral-400 */
+    --apagado: oklch(70.8% 0 0); /* ⚠ contraste: era neutral-500, que sobre neutral-950 da 4,4:1 */
+    --deshabilitado: oklch(43.9% 0 0); /* neutral-600 — DECISIÓN, no herencia: el original
+       (neutral-400 sin par dark) hacía que un control deshabilitado se viera IGUAL que el
+       texto secundario habilitado en oscuro. Deshabilitado tiene que verse más tenue. */
+    --borde: oklch(26.9% 0 0); /* neutral-800 */
+    --borde-fuerte: oklch(37.1% 0 0); /* neutral-700 */
+    --superficie: oklch(20.5% 0 0 / 50%); /* neutral-900 al 50 %, sobre el fondo */
+    --superficie-2: oklch(26.9% 0 0); /* neutral-800 */
+    --campo: oklch(20.5% 0 0); /* neutral-900, opaco */
+    --pista: oklch(26.9% 0 0); /* neutral-800 */
+
+    --inverso-fondo: #ffffff;
+    --inverso-tinta: oklch(20.5% 0 0);
+
+    --acento: oklch(54.6% 0.245 262.881); /* blue-600: el botón principal no cambiaba con el tema */
+    --acento-contraste: #ffffff;
+    --acento-tinta: oklch(70.7% 0.165 254.624); /* blue-400 */
+    --acento-fondo: oklch(28.2% 0.091 267.935 / 30%); /* blue-950 al 30 % */
+    --acento-borde: oklch(37.9% 0.146 265.522); /* blue-900 */
+    --foco: oklch(62.3% 0.214 259.815); /* blue-500 */
+
+    --ok: oklch(79.2% 0.209 151.711); /* green-400 */
+    --error: oklch(70.4% 0.191 22.216); /* red-400 */
+    --error-fondo: oklch(25.8% 0.092 26.042 / 40%); /* red-950 al 40 % */
+    --error-texto: oklch(88.5% 0.062 18.334); /* red-200 */
+    --advertencia-fondo: oklch(27.9% 0.077 45.635 / 40%); /* amber-950 al 40 % */
+    --advertencia-titulo: oklch(92.4% 0.12 95.746); /* amber-200 */
+    --advertencia-texto: oklch(87.9% 0.169 91.605); /* amber-300 */
+    --advertencia-borde: oklch(47.3% 0.137 46.201); /* amber-800 */
+    --advertencia-borde-fuerte: oklch(55.5% 0.163 48.998); /* amber-700 */
+
+    --sombra-caja: 0 1px 2px oklch(0% 0 0 / 40%), 0 8px 24px -16px oklch(0% 0 0 / 70%);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/*
+ * El puente a Tailwind: cada token se vuelve utilidad (`bg-fondo`, `text-tinta`,
+ * `border-borde`…). `inline` hace que la utilidad apunte a la variable, así el mismo
+ * `text-apagado` vale distinto en claro y oscuro sin pares `dark:`.
+ */
+@theme inline {
+  --color-fondo: var(--fondo);
+  --color-tinta: var(--tinta);
+  --color-tinta-2: var(--tinta-2);
+  --color-apagado: var(--apagado);
+  --color-deshabilitado: var(--deshabilitado);
+  --color-borde: var(--borde);
+  --color-borde-fuerte: var(--borde-fuerte);
+  --color-superficie: var(--superficie);
+  --color-superficie-2: var(--superficie-2);
+  --color-campo: var(--campo);
+  --color-pista: var(--pista);
+  --color-inverso-fondo: var(--inverso-fondo);
+  --color-inverso-tinta: var(--inverso-tinta);
+  --color-acento: var(--acento);
+  --color-acento-contraste: var(--acento-contraste);
+  --color-acento-tinta: var(--acento-tinta);
+  --color-acento-fondo: var(--acento-fondo);
+  --color-acento-borde: var(--acento-borde);
+  --color-foco: var(--foco);
+  --color-ok: var(--ok);
+  --color-error: var(--error);
+  --color-error-fondo: var(--error-fondo);
+  --color-error-texto: var(--error-texto);
+  --color-advertencia-fondo: var(--advertencia-fondo);
+  --color-advertencia-titulo: var(--advertencia-titulo);
+  --color-advertencia-texto: var(--advertencia-texto);
+  --color-advertencia-borde: var(--advertencia-borde);
+  --color-advertencia-borde-fuerte: var(--advertencia-borde-fuerte);
+
+  /*
+   * La letra. Las variables `--fuente-*` las inyecta `next/font` en el layout raíz: la
+   * fuente se sirve desde el propio origen (`font-src 'self'` de la CSP la cubre; a
+   * Google no se le pide nada en tiempo de ejecución).
+   *
+   * Tres roles: títulos con carácter, interfaz legible, y monoespaciada para los
+   * tiempos — `00:04:12` con cifras del mismo ancho, porque una columna de tiempos que
+   * baila es un defecto de lectura, no un gusto.
+   */
+  --font-sans: var(--fuente-ui), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: var(--fuente-titulo), var(--fuente-ui), system-ui, sans-serif;
+  --font-mono: var(--fuente-mono), ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  /* Radios con nombre de rol, no de tamaño: el paso 3 los cambia acá una vez. */
+  --radius-caja: 1rem; /* tarjetas y avisos (era rounded-2xl) */
+  --radius-caja-chica: 0.75rem; /* cajas anidadas (era rounded-xl) */
+  --radius-detalle: 0.5rem; /* campos y notas (era rounded-lg) */
+}
+
+@layer base {
+  body {
+    background: var(--fondo);
+    color: var(--tinta);
+    font-family: var(--fuente-ui), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--fuente-titulo), var(--fuente-ui), system-ui, sans-serif;
+  }
+
+  /*
+   * Cifras de ancho fijo en los contextos de código de las páginas de banco. Los tiempos
+   * del editor y de la cola NO necesitan esta regla: usan `font-mono`, y en una
+   * monoespaciada todos los glifos ya miden lo mismo.
+   */
+  code,
+  kbd,
+  samp,
+  pre {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/**
+ * Foco visible y movimiento respetuoso. (Paso 5 del rediseño.)
+ *
+ * ── El foco ──
+ *
+ * Hasta acá no había **ninguna** regla de foco: se usaba el anillo por defecto del
+ * navegador, que cambia entre Chrome, Firefox y Safari y que sobre el fondo oscuro de esta
+ * interfaz se ve mal. Ahora sale del mismo token que el resto (`--foco`), que ya está
+ * medido: 3,76:1 sobre el fondo claro y 5,26:1 sobre el oscuro.
+ *
+ * Es `:focus-visible` y no `:focus`: el navegador sabe distinguir un foco que llegó por
+ * teclado de uno que llegó por clic, y poner el anillo al hacer clic es la razón por la que
+ * tanta gente termina borrando el anillo entero — y dejando sin él a quien navega con
+ * teclado.
+ *
+ * El `outline-offset` separa el anillo del borde del control: pegado, sobre un botón que ya
+ * tiene borde, no se distingue de un `:hover`.
+ */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /*
+   * El `contentEditable` del editor no es un control con borde: el anillo tiene que
+   * envolver el texto sin taparlo, así que va por dentro.
+   */
+  [contenteditable]:focus-visible {
+    outline-offset: 0;
+  }
+}
+
+/**
+ * ── El movimiento ──
+ *
+ * `prefers-reduced-motion` no es una preferencia estética: quien la activa suele tener
+ * trastornos vestibulares, y una transición inesperada le produce mareo real. La interfaz
+ * tiene seis transiciones —la barra de avance, el resaltado del tramo que suena, el
+ * triángulo de los paneles, el borde al arrastrar— y ninguna comunica nada que el estado
+ * final no diga solo.
+ *
+ * Se anulan con `0.01ms` y no con `none`: un `transitionend` que nunca llega puede colgar
+ * el código que lo espera, y ese es un modo de fallo peor que el mareo que se quería
+ * evitar.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

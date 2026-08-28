@@ -27,3 +27,6 @@ benchmarks/
 
 # El holdout de E4: material de medición, no producto.
 public/corpus-holdout/
+
+# La transcripcion de la corrida de control del rediseno: material de medicion.
+.control/

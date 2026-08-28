@@ -70,3 +70,9 @@ __pycache__/
 
 # Material de prueba pesado, temporal.
 /public/tmp-*
+
+# Material de la corrida de control del rediseño: se regenera, no se versiona.
+.control/
+
+# Configuracion local de la herramienta con la que se trabaja, no del proyecto.
+.claude/

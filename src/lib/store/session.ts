@@ -1,4 +1,5 @@
 import type { TimedText } from '../vad/align';
+import { cabeAudio, type Espacio, type MotivoSinAudio } from './presupuesto';
 
 /**
  * Persistencia local de una sesión de transcripción.
@@ -41,11 +42,20 @@ export const DB_VERSION = 3;
 export const MAX_RUNS = 3;
 
 /**
- * Cuántas sesiones se conservan. Cada una arrastra su audio, así que el tope no es
- * estético: sin él, diez reuniones de una hora llenan la cuota del navegador y la
- * siguiente escritura falla.
+ * **Ya no existe un tope de sesiones.** La constante queda sólo como registro de lo que
+ * hubo, porque su desaparición es el cambio más importante del paso 4.
+ *
+ * Hasta acá, guardar la sexta transcripción borraba la más vieja entera —cabecera, tramos
+ * y audio— en silencio. Medido el 28/08/2026: la cuota de este origen es de 6,08 GB y
+ * **todas las transcripciones juntas ocupan 45 KB**. El tope borraba con el 99,99 % de la
+ * cuota libre, y contaba sesiones donde la restricción son bytes.
+ *
+ * Lo reemplaza el presupuesto de `presupuesto.ts`: el texto se guarda siempre y sin tope, y
+ * el audio —que es una **copia** de un archivo que el usuario ya tiene— entra si hay lugar.
+ *
+ * @deprecated No se usa para borrar nada. Ver `presupuesto.ts`.
  */
-export const MAX_SESSIONS = 5;
+export const MAX_SESSIONS_HISTORICO = 5;
 
 export interface StoredSession {
   id: string;
@@ -62,6 +72,21 @@ export interface StoredSession {
    * es poder escucharlo, no la transcripción.
    */
   audioStored: boolean;
+  /**
+   * Por qué no está el audio, cuando no está. Sirve para **decirlo**, no para decidir:
+   * «no entró» y «lo liberaste vos» son dos cosas distintas para quien lee la biblioteca.
+   *
+   * Opcional y aditivo: no exige subir `DB_VERSION`, que se sube por almacenes o índices
+   * nuevos, no por campos. Las sesiones viejas simplemente no lo traen.
+   */
+  audioMotivo?: MotivoSinAudio;
+  /**
+   * Cuánto pesa el audio guardado. Es `audio.size`, gratis al guardar.
+   *
+   * Sin esto la biblioteca tendría que abrir todos los blobs para poder decir cuánto ocupa
+   * cada transcripción.
+   */
+  audioBytes?: number;
 }
 
 export interface StoredSegment {
@@ -185,14 +210,29 @@ export function newSessionId(): string {
 }
 
 export class SessionStore {
-  private constructor(private readonly db: IDBDatabase) {}
+  private constructor(
+    private readonly db: IDBDatabase,
+    /**
+     * De dónde sale el espacio disponible. Se **inyecta** por la misma razón que el
+     * `IDBFactory`: `navigator.storage` no existe en el entorno `node` donde corre la
+     * suite, y sin poder sustituirlo el presupuesto sería código que ningún test alcanza —
+     * exactamente lo que el paso 2 vino a arreglar.
+     */
+    private readonly estimar?: () => Promise<Espacio>,
+  ) {}
 
   /**
    * Abre la base. El `factory` se inyecta para poder probar esto contra una
    * implementación en memoria: sin eso, la persistencia sólo se podría verificar a mano en
    * un navegador, que es exactamente el tipo de comprobación que no queda registrada.
    */
-  static open(factory: IDBFactory = indexedDB): Promise<SessionStore> {
+  static open(
+    factory: IDBFactory = indexedDB,
+    estimar: (() => Promise<Espacio>) | undefined = typeof navigator !== 'undefined' &&
+    navigator.storage?.estimate
+      ? () => navigator.storage.estimate()
+      : undefined,
+  ): Promise<SessionStore> {
     return new Promise((resolve, reject) => {
       const req = factory.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
@@ -220,7 +260,7 @@ export class SessionStore {
           db.createObjectStore('runChunks', { keyPath: ['fileKey', 'blockIndex'] });
         }
       };
-      req.onsuccess = () => resolve(new SessionStore(req.result));
+      req.onsuccess = () => resolve(new SessionStore(req.result, estimar));
       req.onerror = () => reject(req.error ?? new Error('No se pudo abrir IndexedDB'));
     });
   }
@@ -261,20 +301,32 @@ export class SessionStore {
     await finished(tx);
 
     if (audio) {
-      try {
-        const at = this.db.transaction('audio', 'readwrite');
-        at.objectStore('audio').put(audio, session.id);
-        await finished(at);
-        session.audioStored = true;
-        const st = this.db.transaction('sessions', 'readwrite');
-        st.objectStore('sessions').put(session);
-        await finished(st);
-      } catch {
-        // Cuota llena, típicamente. Queda `audioStored: false` y la interfaz lo dice.
+      // Se decide ANTES de intentar escribir: con el audio de una reunión de dos horas,
+      // llenar la cuota y que falle deja al navegador con el disco al tope y puede hacerle
+      // tirar la caché del modelo, que vive en la misma cuota. Preguntar es barato.
+      const espacio = await this.espacio();
+      if (!cabeAudio(audio.size, espacio)) {
+        session.audioMotivo = 'sin-espacio';
+        await this.actualizarCabecera(session);
+      } else {
+        try {
+          const at = this.db.transaction('audio', 'readwrite');
+          at.objectStore('audio').put(audio, session.id);
+          await finished(at);
+          session.audioStored = true;
+          session.audioBytes = audio.size;
+          session.audioMotivo = undefined;
+          await this.actualizarCabecera(session);
+        } catch {
+          // El presupuesto dijo que entraba y el navegador dijo que no. Manda el navegador.
+          session.audioMotivo = 'error';
+          await this.actualizarCabecera(session);
+        }
       }
     }
 
-    await this.prune();
+    // Acá estaba `await this.prune()`, que borraba la sesión más vieja. Ver el comentario
+    // de `MAX_SESSIONS_HISTORICO`: nada del usuario se borra solo.
     return session;
   }
 
@@ -346,6 +398,111 @@ export class SessionStore {
     tx.objectStore('segments').delete(segmentRange(sessionId));
     tx.objectStore('audio').delete(sessionId);
     await finished(tx);
+  }
+
+  /** Reescribe sólo la cabecera. Ni los tramos ni el audio se tocan. */
+  private async actualizarCabecera(session: StoredSession): Promise<void> {
+    const tx = this.db.transaction('sessions', 'readwrite');
+    tx.objectStore('sessions').put(session);
+    await finished(tx);
+  }
+
+  /**
+   * Cuánto espacio dice el navegador que hay.
+   *
+   * Se consulta **antes de escribir** y nunca después de borrar: medido en Chrome el
+   * 28/08/2026, escribir un blob de 40 MB sube `usage` en 40 MB al instante, pero borrarlo
+   * **no lo baja** — cinco muestras entre 0,5 s y 20 s, todas planas en +40 MB. Una
+   * política que borrara y volviera a consultar leería un número viejo, creería que sigue
+   * sin entrar, y borraría otra vez.
+   */
+  private async espacio(): Promise<Espacio | null> {
+    try {
+      return (await this.estimar?.()) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Suelta el audio de una sesión y **deja el texto intacto**.
+   *
+   * Es la salida cuando la cuota se acaba: devuelve decenas o cientos de MB sin que el
+   * usuario pierda una sola palabra. Lo pide él desde la biblioteca; no pasa solo.
+   */
+  async liberarAudio(sessionId: string): Promise<void> {
+    const tx = this.db.transaction(['sessions', 'audio'], 'readwrite');
+    const store = tx.objectStore('sessions');
+    const actual = await promisify<StoredSession | undefined>(store.get(sessionId));
+    if (!actual) {
+      tx.abort();
+      return;
+    }
+    tx.objectStore('audio').delete(sessionId);
+    store.put({
+      ...actual,
+      audioStored: false,
+      audioBytes: undefined,
+      audioMotivo: 'liberado' as MotivoSinAudio,
+    });
+    await finished(tx);
+  }
+
+  /**
+   * Le cambia el nombre a una transcripción.
+   *
+   * El nombre que se muestra sale del archivo, y un archivo se llama `grabacion_003.m4a`
+   * bastante seguido. En una lista de veinte, ese nombre no distingue nada. Se toca **sólo
+   * la cabecera**: el audio y los tramos no se miran siquiera.
+   *
+   * Un nombre en blanco se rechaza en vez de guardarse: una fila sin nombre en la lista es
+   * una transcripción que el usuario no puede volver a encontrar.
+   */
+  async rename(sessionId: string, nombre: string): Promise<StoredSession | null> {
+    const limpio = nombre.trim();
+    if (!limpio) return null;
+    const tx = this.db.transaction('sessions', 'readwrite');
+    const store = tx.objectStore('sessions');
+    const actual = await promisify<StoredSession | undefined>(store.get(sessionId));
+    if (!actual) {
+      tx.abort();
+      return null;
+    }
+    const nueva = { ...actual, fileName: limpio };
+    store.put(nueva);
+    await finished(tx);
+    return nueva;
+  }
+
+  /**
+   * Cuánto ocupa el audio de cada sesión, en bytes.
+   *
+   * ── Por qué contabilidad propia y no `navigator.storage.estimate()` ──
+   *
+   * Medido en este equipo el 28/08/2026, y el resultado manda sobre el diseño: escribir un
+   * blob de 40 MB **sube** `estimate().usage` en 40 MB al instante, pero **borrarlo no lo
+   * baja en veinte segundos** — cinco muestras entre 0,5 s y 20 s, todas planas en +40 MB.
+   *
+   * O sea que `estimate()` sirve para saber la **cuota** (que es estable) y para ver que
+   * algo se consumió, pero **no** para comprobar que algo se liberó. Una política que
+   * borrara y volviera a consultar leería un número viejo, concluiría que sigue sin entrar
+   * y borraría otra vez: borrado en cadena, en silencio, que es exactamente el peor fallo
+   * posible en algo que se llama biblioteca.
+   *
+   * Por eso el tamaño sale de `blob.size`, que es exacto y nuestro. Leer los blobs no
+   * carga los bytes: un `Blob` de IndexedDB es una referencia, y `.size` es su cabecera.
+   *
+   * El texto no se cuenta: son **175 bytes por tramo** medidos, así que una reunión de una
+   * hora son ~100 KB contra decenas de MB de audio. Contarlo sería precisión fingida.
+   */
+  async pesos(): Promise<Map<string, number>> {
+    const tx = this.db.transaction('audio', 'readonly');
+    const store = tx.objectStore('audio');
+    const claves = await promisify<IDBValidKey[]>(store.getAllKeys());
+    const blobs = await promisify<Blob[]>(store.getAll());
+    const out = new Map<string, number>();
+    for (const [i, k] of claves.entries()) out.set(String(k), blobs[i]?.size ?? 0);
+    return out;
   }
 
   /* ---------------------------------------------------------------- *
@@ -431,13 +588,6 @@ export class SessionStore {
     tx.objectStore('runs').clear();
     tx.objectStore('runChunks').clear();
     await finished(tx);
-  }
-
-  private async prune(): Promise<void> {
-    const todas = await this.list();
-    for (const vieja of todas.slice(MAX_SESSIONS)) {
-      await this.remove(vieja.id);
-    }
   }
 
   close(): void {

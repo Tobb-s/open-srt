@@ -7,6 +7,7 @@ import { toCsv } from '@/lib/export/csv';
 import { DESCARGA_MB as TRADUCCION_MB } from '@/lib/translate/translator';
 import { layoutTranscript } from '@/lib/export/document';
 import { colorDeHablante, ordenDeAparicion } from '@/lib/diar/colores';
+import { Boton, Chip, Tarjeta } from '@/components/ui';
 import { dict, humanDuration, type Lang } from '@/lib/i18n';
 
 /**
@@ -181,10 +182,10 @@ export default function Editor({
         comparar contra el habla detectada nadie lo notaría.
       */}
       {suspicious && (
-        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950/40">
-          <p className="font-medium text-amber-900 dark:text-amber-200">{t.omission.title}</p>
-          <p className="mt-1 text-amber-800 dark:text-amber-300">{t.omission.body}</p>
-        </div>
+        <Tarjeta as="div" tono="advertencia" relleno="compacto" className="text-sm">
+          <p className="font-medium text-advertencia-titulo">{t.omission.title}</p>
+          <p className="mt-1 text-advertencia-texto">{t.omission.body}</p>
+        </Tarjeta>
       )}
 
       {/*
@@ -195,35 +196,33 @@ export default function Editor({
       {puedeTraducir && (
         <div className="space-y-2">
           {!traduccion && !traduciendo && (
-            <button
-              onClick={onTraducir}
-              className="rounded-full border border-neutral-300 px-5 py-2 text-sm dark:border-neutral-700"
-            >
+            <Boton onClick={onTraducir} className="text-sm">
               {t.translate.label} {t.translate.to(puedeTraducir.etiqueta)} ·{' '}
               {t.translate.button(TRADUCCION_MB)}
-            </button>
+            </Boton>
           )}
           {traduciendo && (
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm text-apagado">
               {t.translate.running(traduciendo.done, traduciendo.total)}
             </p>
           )}
           {traduccion && (
             <>
-              <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 text-sm dark:border-amber-700 dark:bg-amber-950/40">
-                <p className="font-medium text-amber-900 dark:text-amber-200">
+              <Tarjeta as="div" tono="advertencia-fuerte" relleno="compacto" className="text-sm">
+                <p className="font-medium text-advertencia-titulo">
                   {t.translate.warningTitle}
                 </p>
-                <p className="mt-1 text-amber-800 dark:text-amber-300">
+                <p className="mt-1 text-advertencia-texto">
                   {t.translate.warningBody}
                 </p>
-              </div>
-              <button
+              </Tarjeta>
+              <Boton
+                tamano="chico"
                 onClick={() => setViendoTraduccion((v) => !v)}
-                className="rounded-full border border-neutral-300 px-4 py-1.5 text-sm dark:border-neutral-700"
+                className="text-sm"
               >
                 {viendoTraduccion ? t.translate.showOriginal : t.translate.showTranslation}
-              </button>
+              </Boton>
             </>
           )}
         </div>
@@ -236,7 +235,7 @@ export default function Editor({
             src={audioUrl}
             controls
             preload="metadata"
-            className="max-h-80 w-full rounded-xl bg-black"
+            className="max-h-80 w-full rounded-caja-chica bg-black"
           />
         ) : (
           <audio
@@ -250,45 +249,46 @@ export default function Editor({
 
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-medium">{t.result.title}</h2>
-        <span className="text-sm text-neutral-500">
+        <span className="text-sm text-apagado">
           {t.result.words(palabras)}
           {' · '}
           {t.detect.found(mostrados.length, humanDuration(hablaSec, lang))}
         </span>
       </div>
       {audioUrl ? (
-        <p className="text-sm text-neutral-500">{t.editor.hint}</p>
+        <p className="text-sm text-apagado">{t.editor.hint}</p>
       ) : (
-        <p className="text-sm text-neutral-500">{t.store.audioTooBig}</p>
+        <p className="text-sm text-apagado">{t.store.audioTooBig}</p>
       )}
 
       {hablantes.length > 0 && (
-        <div className="space-y-2 rounded-2xl border border-neutral-200 p-4 dark:border-neutral-800">
+        <Tarjeta as="div" relleno="compacto" className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium">{t.speakers.found(hablantes.length)}</span>
             {hablantes.map((h, i) => (
-              <span
+              <Chip
                 key={h}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm ${colorDeHablante(i).fondo} ${colorDeHablante(i).texto}`}
+                forma="pastilla"
+                className={`${colorDeHablante(i).fondo} ${colorDeHablante(i).texto}`}
               >
                 <span className={`h-2 w-2 rounded-full ${colorDeHablante(i).barra}`} />
                 {h}
-              </span>
+              </Chip>
             ))}
           </div>
-          {onRenameSpeaker && <p className="text-xs text-neutral-500">{t.speakers.rename}</p>}
+          {onRenameSpeaker && <p className="text-xs text-apagado">{t.speakers.rename}</p>}
           {/* Lo que la separacion NO hace, dicho donde se ve el resultado y no escondido en
               la documentacion. */}
-          <p className="text-xs text-neutral-400">{t.speakers.caveat}</p>
-        </div>
+          <p className="text-xs text-apagado">{t.speakers.caveat}</p>
+        </Tarjeta>
       )}
 
-      <ol className="divide-y divide-neutral-200 overflow-hidden rounded-2xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+      <Tarjeta as="ol" relleno="ninguno" className="divide-y divide-borde overflow-hidden">
         {mostrados.map((s, i) => (
           <li
             key={`${i}-${s.startSec}`}
             className={`flex gap-3 p-3 transition-colors ${
-              i === activo ? 'bg-blue-50 dark:bg-blue-950/40' : ''
+              i === activo ? 'bg-acento-fondo' : ''
             }`}
           >
             {/* La barra va en TODOS los tramos aunque el nombre solo aparezca al cambiar:
@@ -304,7 +304,7 @@ export default function Editor({
               disabled={!audioUrl}
               // El tiempo es un botón, no un adorno: es el atajo para verificar la línea.
               title={`${formatClock(s.startSec)} → ${formatClock(s.endSec)}`}
-              className="shrink-0 pt-0.5 font-mono text-xs text-blue-700 hover:underline disabled:text-neutral-400 disabled:no-underline dark:text-blue-400"
+              className="shrink-0 pt-0.5 font-mono text-xs text-acento-tinta hover:underline disabled:text-deshabilitado disabled:no-underline"
             >
               {formatClock(s.startSec)}
             </button>
@@ -314,13 +314,15 @@ export default function Editor({
               {s.speaker !== undefined && s.speaker !== segments[i - 1]?.speaker && (
                 <span
                   contentEditable={!!onRenameSpeaker}
+                  role={onRenameSpeaker ? 'textbox' : undefined}
+                  aria-label={onRenameSpeaker ? t.speakers.rename : undefined}
                   suppressContentEditableWarning
                   onBlur={(e) => {
                     const nuevo = (e.currentTarget.textContent ?? '').trim();
                     if (nuevo && nuevo !== s.speaker) onRenameSpeaker?.(s.speaker!, nuevo);
                     else e.currentTarget.textContent = s.speaker!;
                   }}
-                  className={`mb-0.5 block text-sm font-medium outline-none focus:rounded focus:ring-2 focus:ring-blue-500 ${colorDe(s.speaker)?.texto ?? ''}`}
+                  className={`mb-0.5 block text-sm font-medium outline-none focus:rounded focus:ring-2 focus:ring-foco ${colorDe(s.speaker)?.texto ?? ''}`}
                 >
                   {s.speaker}
                 </span>
@@ -329,6 +331,12 @@ export default function Editor({
                 // No se edita con la traducción a la vista: se confundiría qué se está
                 // corrigiendo, y el editor guarda sobre el original.
                 contentEditable={!viendoTraduccion}
+                // Sin nombre, el lector de pantalla anuncia «editable» y nada más: ni de
+                // qué tramo se trata ni a qué minuto del audio corresponde. Con el tiempo
+                // adentro del nombre, quien no ve la pantalla puede ubicarse igual que
+                // quien la ve.
+                role={viendoTraduccion ? undefined : 'textbox'}
+                aria-label={viendoTraduccion ? undefined : t.editor.segmentLabel(formatClock(s.startSec))}
                 suppressContentEditableWarning
                 onBlur={(e) => {
                   const nuevo = e.currentTarget.textContent ?? '';
@@ -337,7 +345,7 @@ export default function Editor({
                     setEditados((prev) => new Set(prev).add(i));
                   }
                 }}
-                className="block outline-none focus:rounded focus:bg-white focus:ring-2 focus:ring-blue-500 dark:focus:bg-neutral-900"
+                className="block outline-none focus:rounded focus:bg-campo focus:ring-2 focus:ring-foco"
               >
                 {s.text}
               </span>
@@ -347,32 +355,42 @@ export default function Editor({
               único que le permite a alguien notar que una frase dice otra cosa.
             */}
             {viendoTraduccion && segments[i] && (
-              <span className="w-full shrink-0 pl-14 text-xs text-neutral-400">
+              <span className="w-full shrink-0 pl-14 text-xs text-apagado">
                 {t.translate.originalLabel}: {segments[i].text}
               </span>
             )}
             {editados.has(i) && (
-              <span className="shrink-0 self-start text-xs text-neutral-400">
+              <span className="shrink-0 self-start text-xs text-apagado">
                 {t.editor.edited}
               </span>
             )}
           </li>
         ))}
-      </ol>
+      </Tarjeta>
 
       {/*
         Los formatos van como grupo y no como una fila de botones sueltos: con cuatro ya
         competían entre sí por la atención, y en E3 se suman más. La acción es una sola
         —descargar— y el formato es el parámetro.
       */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
+      {/*
+        La barra de exportación queda **pegada al borde inferior**.
+        Antes vivía al final del documento: con una reunión de una hora son cientos de
+        tramos, así que descargar el SRT obligaba a recorrer toda la transcripción hasta
+        el fondo. La acción no depende de dónde esté leyendo el usuario, así que no tiene
+        por qué esperarlo ahí abajo.
+
+        El fondo es opaco (`bg-fondo`) a propósito: translúcido, el texto de los tramos se
+        vería pasar por detrás de los botones.
+      */}
+      <div className="sticky bottom-0 -mx-1 flex flex-wrap items-center gap-2 border-t border-borde bg-fondo px-1 py-3">
+        <Boton
           onClick={() => void navigator.clipboard.writeText(toPlainText(mostrados))}
-          className="mr-2 rounded-full border border-neutral-300 px-5 py-2 dark:border-neutral-700"
+          className="mr-2"
         >
           {t.result.copy}
-        </button>
-        <span className="text-sm text-neutral-500">{t.editor.downloadLabel}</span>
+        </Boton>
+        <span className="text-sm text-apagado">{t.editor.downloadLabel}</span>
         {(
           [
             ['TXT', () => toPlainText(mostrados), 'txt', 'text/plain'],
@@ -393,18 +411,19 @@ export default function Editor({
             ],
           ] as const
         ).map(([nombre, generar, ext, mime]) => (
-          <button
+          <Boton
             key={ext}
+            tamano="ninguno"
             disabled={armando !== null}
             onClick={() => void descargar(generar, ext, mime)}
-            className="rounded-full border border-neutral-300 px-3.5 py-1.5 font-mono text-sm hover:bg-neutral-100 disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            className="px-3.5 py-1.5 font-mono text-sm"
           >
             {armando === ext ? '…' : nombre}
-          </button>
+          </Boton>
         ))}
       </div>
-      {armando && <p className="text-xs text-neutral-500">{t.editor.building}</p>}
-      <p className="text-xs text-neutral-400">{t.editor.csvHint}</p>
+      {armando && <p className="text-xs text-apagado">{t.editor.building}</p>}
+      <p className="text-xs text-apagado">{t.editor.csvHint}</p>
     </section>
   );
 }

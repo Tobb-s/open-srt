@@ -22,17 +22,32 @@ export const APP_NAME = 'OpenSRT';
 
 export interface Dict {
   meta: { title: string; description: string };
-  hero: { title: string; subtitle: string };
+  hero: {
+    title: string;
+    subtitle: string;
+    /** El título encogido, para cuando el usuario ya decidió y está trabajando. */
+    short: string;
+  };
   drop: { idle: string; hint: string; button: string; formats: string };
   privacy: {
     title: string;
+    /** Una línea, para el disparador del panel plegado. */
+    short: string;
     audioStays: string;
     modelComes: string;
     detail: string;
   };
   device: {
     checking: string;
-    ready: (model: string, mb: number) => string;
+    /**
+     * Con qué va a trabajar el equipo, en palabras de quien lo usa.
+     *
+     * Reemplaza a `ready(model, mb)`, que imprimía la **clave interna del perfil** —
+     * `turbo-webgpu`, `base-wasm`— en la primera línea que veía el usuario. Esa clave es de
+     * `models.ts` y no significa nada afuera del código; lo que importa es si va a usar la
+     * placa de video o el procesador, porque eso explica la velocidad y la calidad.
+     */
+    engine: (usaGpu: boolean, mb: number) => string;
     noGpuWarn: string;
     quality: { alta: string; media: string; baja: string };
     switchTo: (model: string) => string;
@@ -140,6 +155,10 @@ export interface Dict {
     body: string;
   };
   editor: {
+    /** Nombre accesible de cada tramo editable: dice de qué minuto es. */
+    segmentLabel: (tiempo: string) => string;
+    /** Mientras se lee el archivo del disco, antes de saber siquiera cuánto dura. */
+    decoding: string;
     hint: string;
     edited: string;
     /**
@@ -172,6 +191,47 @@ export interface Dict {
     /** Cuando no se pudo averiguar qué puede el equipo y hay que asumir lo mínimo. */
     detect: string;
   };
+  /**
+   * La biblioteca: todo lo que quedó guardado en este equipo.
+   *
+   * Es la pantalla que convierte «restaurar la última sesión» en algo que se puede usar con
+   * diez archivos. Y es el momento en que borrar la sexta transcripción en silencio deja de
+   * ser un límite de banco de pruebas y pasa a ser pérdida de datos.
+   */
+  library: {
+    title: string;
+    link: string;
+    empty: string;
+    emptyHint: string;
+    /** Cuántas hay y cuánto ocupan, junto: es la información que evita la sorpresa. */
+    summary: (n: number, tamano: string) => string;
+    /** Lo que ocupa el audio de una transcripción. `null` cuando el audio no está. */
+    size: (tamano: string) => string;
+    noAudio: string;
+    segments: (n: number) => string;
+    open: string;
+    rename: string;
+    renamePrompt: string;
+    remove: string;
+    removeConfirm: (file: string) => string;
+    /** Descargar varias de una vez, que es lo que hace útil una cola de diez. */
+    exportAll: string;
+    exportAllHint: string;
+    exporting: (hechos: number, total: number) => string;
+    /** Las transcripciones a medias, que hoy sólo aparecen si volvés a elegir el archivo. */
+    unfinished: string;
+    unfinishedAt: (pct: number) => string;
+    resume: string;
+    /** Cuánto queda en el equipo, dicho antes de que se llene. */
+    quota: (usado: string, total: string) => string;
+    quotaTight: string;
+    /** Soltar el audio y quedarse con el texto: la salida cuando falta lugar. */
+    freeAudio: string;
+    freeAudioConfirm: (file: string, tamano: string) => string;
+    freedAudio: string;
+  };
+  /** Los títulos de lo que está plegado. Ver `paneles` en el diccionario. */
+  paneles: { ajustes: string; ajustesResumen: (calidad: string) => string };
   footer: { stage: string; source: string };
 }
 
@@ -184,9 +244,8 @@ const es: Dict = {
   },
   hero: {
     title: 'Transcribí audio sin subirlo a ningún lado',
-    subtitle:
-      'La transcripción ocurre en tu computadora, dentro del navegador. Tu audio no viaja ' +
-      'a ningún servidor.',
+    subtitle: 'Tu audio no viaja a ningún servidor: se transcribe acá, dentro del navegador.',
+    short: 'Transcripción en tu equipo',
   },
   drop: {
     idle: 'Soltá un archivo de audio o video acá',
@@ -196,6 +255,7 @@ const es: Dict = {
   },
   privacy: {
     title: 'Qué sale y qué entra',
+    short: 'tu audio no sale; el modelo sí se baja',
     audioStays: 'Tu audio **no sale** de esta computadora.',
     modelComes: 'Pero **se descarga un modelo** desde Hugging Face, la primera vez.',
     detail:
@@ -206,7 +266,8 @@ const es: Dict = {
   },
   device: {
     checking: 'Viendo qué puede tu equipo…',
-    ready: (model, mb) => `Se va a usar ${model} · ${mb} MB de descarga la primera vez`,
+    engine: (usaGpu, mb) =>
+      `${usaGpu ? 'Usa la placa de video' : 'Usa el procesador'} · ${mb} MB la primera vez`,
     noGpuWarn:
       'Este navegador no tiene aceleración por GPU disponible, así que se usa un modelo ' +
       'más chico. Va a cometer bastantes más errores: conviene revisar el resultado.',
@@ -216,6 +277,41 @@ const es: Dict = {
       baja: 'Calidad limitada',
     },
     switchTo: (model) => `Usar ${model} (más lento, menos errores)`,
+  },
+  library: {
+    title: 'Tus transcripciones',
+    link: 'Biblioteca',
+    empty: 'Todavía no hay nada guardado.',
+    emptyHint: 'Lo que transcribas queda acá, en el disco de esta computadora.',
+    summary: (n, tamano) =>
+      n === 1 ? `1 transcripción · ${tamano}` : `${n} transcripciones · ${tamano}`,
+    size: (tamano) => `audio ${tamano}`,
+    noAudio: 'sin audio',
+    segments: (n) => `${n} tramos`,
+    open: 'Abrir',
+    rename: 'Renombrar',
+    renamePrompt: 'Nombre de la transcripción',
+    remove: 'Borrar',
+    removeConfirm: (file) => `¿Borrar «${file}» y su audio? No se puede deshacer.`,
+    exportAll: 'Descargar todas',
+    exportAllHint: 'Un archivo .zip con el TXT y el SRT de cada una.',
+    exporting: (hechos, total) => `Armando… ${hechos} de ${total}`,
+    unfinished: 'Sin terminar',
+    unfinishedAt: (pct) => `quedó al ${pct} %`,
+    resume: 'Continuar',
+    quota: (usado, total) => `${usado} usados de ${total} disponibles en este navegador`,
+    quotaTight:
+      'Queda poco espacio. Al guardar una transcripción nueva puede que el audio no entre: ' +
+      'el texto se guarda igual, y se avisa cuando pasa.',
+    freeAudio: 'Soltar audio',
+    freeAudioConfirm: (file, tamano) =>
+      `¿Soltar el audio de «${file}» y recuperar ${tamano}? El texto queda intacto; lo que ` +
+      `se pierde es poder escucharlo desde acá.`,
+    freedAudio: 'audio soltado',
+  },
+  paneles: {
+    ajustes: 'Ajustes',
+    ajustesResumen: (calidad) => `${calidad}, listo para usar`,
   },
   file: {
     duration: (human) => `Duración: ${human}`,
@@ -331,6 +427,8 @@ const es: Dict = {
       'Conviene comparar con el audio antes de darla por buena.',
   },
   editor: {
+    segmentLabel: (tiempo) => `Transcripción del minuto ${tiempo}, se puede corregir`,
+    decoding: 'Leyendo el archivo…',
     hint: 'Hacé clic en una línea para escuchar esa parte. El texto se puede corregir.',
     edited: 'editado',
     downloadLabel: 'Descargar',
@@ -365,7 +463,10 @@ const es: Dict = {
       'pestaña. **La página va a quedar congelada mientras trabaja** — no está trabada.',
   },
   footer: {
-    stage: 'Etapa 4: audio y video a texto, con tiempos, hablantes y seis formatos. Traducir y resumir vienen después.',
+    // Decía «Etapa 4: … Traducir y resumir vienen después». Era vocabulario interno —las
+    // etapas son del plan de desarrollo, no del producto— y además **ya era falso**:
+    // traducir se hizo en E5 y resumir se descartó por decisión de alcance.
+    stage: 'Audio y video a texto, con tiempos y hablantes. Se exporta en seis formatos.',
     source: 'Código abierto',
   },
 };
@@ -379,9 +480,8 @@ const en: Dict = {
   },
   hero: {
     title: 'Transcribe audio without uploading it anywhere',
-    subtitle:
-      'Transcription happens on your computer, inside the browser. Your audio never reaches ' +
-      'a server.',
+    subtitle: 'Your audio never reaches a server: it is transcribed here, inside the browser.',
+    short: 'Transcription on your machine',
   },
   drop: {
     idle: 'Drop an audio or video file here',
@@ -391,6 +491,7 @@ const en: Dict = {
   },
   privacy: {
     title: 'What leaves and what arrives',
+    short: 'your audio stays; the model comes down',
     audioStays: 'Your audio **never leaves** this computer.',
     modelComes: 'But **a model is downloaded** from Hugging Face, the first time.',
     detail:
@@ -401,7 +502,8 @@ const en: Dict = {
   },
   device: {
     checking: 'Checking what your machine can do…',
-    ready: (model, mb) => `Will use ${model} · ${mb} MB download the first time`,
+    engine: (usaGpu, mb) =>
+      `${usaGpu ? 'Uses your graphics card' : 'Uses your processor'} · ${mb} MB the first time`,
     noGpuWarn:
       'This browser has no GPU acceleration available, so a smaller model is used. It will ' +
       'make considerably more mistakes — worth reviewing the result.',
@@ -411,6 +513,40 @@ const en: Dict = {
       baja: 'Limited quality',
     },
     switchTo: (model) => `Use ${model} (slower, fewer mistakes)`,
+  },
+  library: {
+    title: 'Your transcripts',
+    link: 'Library',
+    empty: 'Nothing saved yet.',
+    emptyHint: 'Whatever you transcribe stays here, on this computer’s disk.',
+    summary: (n, tamano) => (n === 1 ? `1 transcript · ${tamano}` : `${n} transcripts · ${tamano}`),
+    size: (tamano) => `audio ${tamano}`,
+    noAudio: 'no audio',
+    segments: (n) => `${n} segments`,
+    open: 'Open',
+    rename: 'Rename',
+    renamePrompt: 'Transcript name',
+    remove: 'Delete',
+    removeConfirm: (file) => `Delete “${file}” and its audio? This cannot be undone.`,
+    exportAll: 'Download all',
+    exportAllHint: 'One .zip with the TXT and SRT of each.',
+    exporting: (hechos, total) => `Building… ${hechos} of ${total}`,
+    unfinished: 'Unfinished',
+    unfinishedAt: (pct) => `stopped at ${pct}%`,
+    resume: 'Continue',
+    quota: (usado, total) => `${usado} used of ${total} available in this browser`,
+    quotaTight:
+      'Space is running low. The audio of a new transcript may not fit: the text is saved ' +
+      'anyway, and you are told when it happens.',
+    freeAudio: 'Drop audio',
+    freeAudioConfirm: (file, tamano) =>
+      `Drop the audio of “${file}” and get ${tamano} back? The text stays untouched; what ` +
+      `you lose is being able to play it from here.`,
+    freedAudio: 'audio dropped',
+  },
+  paneles: {
+    ajustes: 'Settings',
+    ajustesResumen: (calidad) => `${calidad}, ready to go`,
   },
   file: {
     duration: (human) => `Length: ${human}`,
@@ -526,6 +662,8 @@ const en: Dict = {
       'sounds natural. Worth checking against the audio before trusting it.',
   },
   editor: {
+    segmentLabel: (tiempo) => `Transcript at ${tiempo}, editable`,
+    decoding: 'Reading the file…',
     hint: 'Click a line to hear that part. The text can be corrected.',
     edited: 'edited',
     downloadLabel: 'Download',
@@ -559,7 +697,7 @@ const en: Dict = {
       'will freeze while it works** — it is not stuck.',
   },
   footer: {
-    stage: 'Stage 4: audio and video to text, with timings, speakers and six formats. Translating and summarising come later.',
+    stage: 'Audio and video to text, with timings and speakers. Exports in six formats.',
     source: 'Open source',
   },
 };
@@ -577,6 +715,30 @@ export function dict(lang: Lang): Dict {
  * «y» se lee mal, y esos segundos son precisamente la falsa precisión que el rango venía a
  * evitar. Se redondea a minutos, y si los extremos coinciden se dice uno solo.
  */
+/**
+ * Un tamaño en bytes, legible.
+ *
+ * Con **base 1024 y etiquetas KB/MB/GB**, que es lo que muestran Windows y el explorador
+ * de archivos: si la biblioteca dijera «52,4 MB» y el sistema «50,0 MB» por el mismo
+ * archivo, el usuario tendría razón en desconfiar de las dos.
+ *
+ * Un decimal a partir de MB y ninguno abajo: «1,4 MB» dice algo, «734,2 KB» finge una
+ * precisión que a nadie le sirve.
+ */
+export function humanBytes(bytes: number, lang: Lang): string {
+  const coma = (n: number, dec: number) =>
+    n.toLocaleString(lang === 'es' ? 'es-AR' : 'en-US', {
+      minimumFractionDigits: dec,
+      maximumFractionDigits: dec,
+    });
+  if (bytes < 1024) return `${coma(bytes, 0)} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${coma(kb, 0)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${coma(mb, 1)} MB`;
+  return `${coma(mb / 1024, 1)} GB`;
+}
+
 export function humanRange(minSec: number, maxSec: number, lang: Lang): string {
   const entre = lang === 'es' ? 'entre' : 'between';
   const y = lang === 'es' ? 'y' : 'and';
