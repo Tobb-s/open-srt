@@ -118,6 +118,8 @@ export default function Transcribe({ lang }: { lang: Lang }) {
           durationSec={v.file.durationSec}
           fileKey={v.file.key}
           profile={v.profile}
+          modos={v.modos}
+          onElegirModo={v.setProfile}
           audioLang={v.audioLang}
           onAudioLang={v.setAudioLang}
           separarHablantes={v.separarHablantes}

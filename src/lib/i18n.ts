@@ -230,6 +230,28 @@ export interface Dict {
     freeAudioConfirm: (file: string, tamano: string) => string;
     freedAudio: string;
   };
+  /**
+   * Los tres modos de transcripción, como elección del usuario.
+   *
+   * Los nombres son **descriptivos y propios**: dicen qué hace cada modo. Ponerles nombres
+   * de fantasía obligaría a aprenderse cuál es cuál antes de poder elegir.
+   */
+  modes: {
+    title: string;
+    hint: string;
+    rapido: { name: string; tag: string };
+    equilibrado: { name: string; tag: string };
+    preciso: { name: string; tag: string };
+    /** Qué modelo hay debajo. Se dice porque es verificable, no para lucirse. */
+    model: (nombre: string) => string;
+    download: (mb: number) => string;
+    /** Cuánto más lento que el más rápido, según las medianas medidas. */
+    slower: (veces: string) => string;
+    /** El error medido en el corpus de E0, con su advertencia. */
+    errors: (pct: string) => string;
+    errorsCaveat: string;
+    unavailable: string;
+  };
   /** Los títulos de lo que está plegado. Ver `paneles` en el diccionario. */
   paneles: { ajustes: string; ajustesResumen: (calidad: string) => string };
   footer: { stage: string; source: string };
@@ -308,6 +330,22 @@ const es: Dict = {
       `¿Soltar el audio de «${file}» y recuperar ${tamano}? El texto queda intacto; lo que ` +
       `se pierde es poder escucharlo desde acá.`,
     freedAudio: 'audio soltado',
+  },
+  modes: {
+    title: 'Modo de transcripción',
+    hint: 'Se puede cambiar antes de empezar. El modelo se descarga una sola vez.',
+    rapido: { name: 'Rápido', tag: 'el más liviano' },
+    equilibrado: { name: 'Equilibrado', tag: 'más preciso, más lento' },
+    preciso: { name: 'Máxima precisión', tag: 'el que menos errores comete' },
+    model: (nombre) => `Whisper ${nombre}`,
+    download: (mb) => `${mb} MB la primera vez`,
+    slower: (veces) => `${veces}× más lento que el rápido`,
+    errors: (pct) => `${pct} de error medido`,
+    errorsCaveat:
+      'El error está medido sobre el corpus de referencia —frases sueltas, grabadas para ' +
+      'otra cosa—, así que no es el que vas a ver en una reunión real. Sirve para comparar ' +
+      'los modos entre sí, no para prometer un resultado.',
+    unavailable: 'No disponible en este equipo',
   },
   paneles: {
     ajustes: 'Ajustes',
@@ -543,6 +581,22 @@ const en: Dict = {
       `Drop the audio of “${file}” and get ${tamano} back? The text stays untouched; what ` +
       `you lose is being able to play it from here.`,
     freedAudio: 'audio dropped',
+  },
+  modes: {
+    title: 'Transcription mode',
+    hint: 'You can change it before starting. The model downloads only once.',
+    rapido: { name: 'Fast', tag: 'the lightest' },
+    equilibrado: { name: 'Balanced', tag: 'more accurate, slower' },
+    preciso: { name: 'Best accuracy', tag: 'the fewest mistakes' },
+    model: (nombre) => `Whisper ${nombre}`,
+    download: (mb) => `${mb} MB the first time`,
+    slower: (veces) => `${veces}× slower than fast`,
+    errors: (pct) => `${pct} measured error`,
+    errorsCaveat:
+      'The error is measured on the reference corpus — isolated sentences, recorded for ' +
+      'something else — so it is not what you will see in a real meeting. It compares the ' +
+      'modes against each other; it does not promise a result.',
+    unavailable: 'Not available on this machine',
   },
   paneles: {
     ajustes: 'Settings',

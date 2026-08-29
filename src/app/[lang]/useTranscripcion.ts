@@ -10,6 +10,7 @@ import { decodeToMono16k } from '@/lib/audio/decode';
 import type { TimedText } from '@/lib/vad/align';
 import { SessionStore, fileKeyOf, newSessionId, type StoredRun, type StoredSession } from '@/lib/store/session';
 import { parPara } from '@/lib/translate/translator';
+import { modosPara, type Modo } from '@/lib/asr/modos';
 import { recorrerCola, type ItemCola } from '@/lib/sesion/cola';
 import {
   sesionDeCorrida,
@@ -72,6 +73,14 @@ export function useTranscripcion(lang: Lang) {
 
   const [phase, setPhase] = useState<Phase>('checking');
   const [selection, setSelection] = useState<Selection | null>(null);
+  /**
+   * Los tres modos, con cuáles puede este equipo.
+   *
+   * `inspect()` ya devolvía `caps` y se descartaba. Se guardan los modos y no las
+   * capacidades porque la pantalla no tiene nada que hacer con `maxBufferBytes`: lo que
+   * necesita es qué puede ofrecer y por qué no puede ofrecer el resto.
+   */
+  const [modos, setModos] = useState<Modo[]>([]);
   const [profile, setProfile] = useState<ModelProfile | null>(null);
   const [file, setFile] = useState<LoadedFile | null>(null);
   const [downloadPct, setDownloadPct] = useState(0);
@@ -149,9 +158,10 @@ export function useTranscripcion(lang: Lang) {
   useEffect(() => {
     let alive = true;
     void AsrEngine.inspect()
-      .then(({ selection: sel }) => {
+      .then(({ caps, selection: sel }) => {
         if (!alive) return;
         setSelection(sel);
+        setModos(modosPara(caps));
 
         // `?perfil=base-wasm` fuerza un perfil concreto. Sirve para dos cosas: probar el
         // camino sin GPU en un equipo que sí la tiene —si no, ese camino no se ejercita
@@ -176,6 +186,9 @@ export function useTranscripcion(lang: Lang) {
         // elegido no se dibujaba nada, ni el panel del equipo ni un mensaje. Visto en una
         // pestaña en segundo plano, donde WebGPU no contestaba.
         setProfile(profileByKey('base-wasm') ?? null);
+        // Si la detección falló no se sabe qué puede la placa: se ofrecen los dos modos de
+        // procesador, que andan en cualquier navegador, y el preciso queda apagado.
+        setModos(modosPara({ webgpu: false, webgpuReason: avisoDeteccion }));
         setSelection({
           profile: profileByKey('base-wasm')!,
           notice: { level: 'warn', text: avisoDeteccion },
@@ -646,6 +659,7 @@ export function useTranscripcion(lang: Lang) {
     // estado
     phase,
     selection,
+    modos,
     profile,
     file,
     downloadPct,

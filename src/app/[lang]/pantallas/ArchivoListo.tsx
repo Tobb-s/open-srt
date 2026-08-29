@@ -1,4 +1,6 @@
 import { Boton, Campo, Selector, Tarjeta } from '@/components/ui';
+import { ModosDeTranscripcion } from './ModosDeTranscripcion';
+import type { Modo } from '@/lib/asr/modos';
 import { learnedRtf, sampleCount } from '@/lib/asr/learned';
 import { rtfMedian, type ModelProfile } from '@/lib/asr/models';
 import { roughEstimateRange } from '@/lib/asr/capabilities';
@@ -19,6 +21,8 @@ export function ArchivoListo({
   durationSec,
   fileKey,
   profile,
+  modos,
+  onElegirModo,
   audioLang,
   onAudioLang,
   separarHablantes,
@@ -35,6 +39,8 @@ export function ArchivoListo({
   durationSec: number;
   fileKey: string;
   profile: ModelProfile;
+  modos: Modo[];
+  onElegirModo: (p: ModelProfile) => void;
   audioLang: 'auto' | 'es' | 'en';
   onAudioLang: (v: 'auto' | 'es' | 'en') => void;
   separarHablantes: boolean;
@@ -80,6 +86,13 @@ export function ArchivoListo({
           {t.file.tooLong}
         </p>
       )}
+
+      {/*
+        El modo va **antes** que el idioma y los hablantes: es la decisión que más cambia el
+        resultado —entre el modo rápido y el preciso hay diez veces más errores medidos— y
+        además la que mueve el número de la estimación de arriba.
+      */}
+      <ModosDeTranscripcion t={t} modos={modos} activo={profile} onElegir={onElegirModo} />
 
       <Campo
         etiqueta={t.file.audioLang}

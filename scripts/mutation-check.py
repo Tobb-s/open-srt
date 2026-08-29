@@ -84,6 +84,8 @@ ARMAR = ROOT / "src" / "lib" / "sesion" / "armar.ts"
 # Paso 4: la politica de almacenamiento que reemplazo al tope de cinco sesiones.
 PRESU = ROOT / "src" / "lib" / "store" / "presupuesto.ts"
 PAQUETE = ROOT / "src" / "lib" / "export" / "paquete.ts"
+# Los tres modos de transcripcion, que el usuario elige.
+MODOS = ROOT / "src" / "lib" / "asr" / "modos.ts"
 
 # (nombre, archivo, texto original, texto mutado, qué debería atrapar)
 MUTANTS = [
@@ -905,6 +907,63 @@ MUTANTS = [
         "return !(usado + bytes + reservaDe(quota) > quota);",
         "control: equivalente, el test NO debe fallar",
     ),
+    # ── Los modos de transcripcion ──
+    (
+        "se ofrece el modo preciso sin GPU",
+        MODOS,
+        "  const gpu = caps.webgpu ? mejorDeGpu(caps) : null;",
+        "  const gpu = mejorDeGpu(caps);",
+        "una hora de audio en cinco y con el final faltando (RTF 4,74 medido en E0)",
+    ),
+    (
+        "el limite de buffer de la GPU se ignora",
+        MODOS,
+        "    if (limite > 0 && p.peakBufferBytes > limite) continue;",
+        "",
+        "el timeout de 900 s de E0: el encoder no entra y la carga muere sin decir por que",
+    ),
+    (
+        "un limite ausente se toma como cero",
+        MODOS,
+        "  const limite = caps.maxBufferBytes ?? 0;",
+        "  const limite = caps.maxBufferBytes ?? 1;",
+        "apaga el modo preciso en todo navegador que no reporte el limite",
+    ),
+    (
+        "el modo apagado no dice por que",
+        MODOS,
+        "      motivo: gpu\n        ? undefined\n        : !caps.webgpu\n          ? (caps.webgpuReason ?? 'Este navegador no tiene aceleraci\u00f3n por placa de video.')\n          : 'La placa de video de este equipo no tiene memoria suficiente para el modelo grande.',",
+        "      motivo: undefined,",
+        "una tarjeta gris sin explicacion",
+    ),
+    (
+        "el orden de los modos depende del equipo",
+        MODOS,
+        "    { clave: 'rapido', profile: base },\n    { clave: 'equilibrado', profile: SLOW_ACCURATE },",
+        "    { clave: 'equilibrado', profile: SLOW_ACCURATE },\n    { clave: 'rapido', profile: base },",
+        "la misma tarjeta en distinto lugar en cada visita",
+    ),
+    (
+        "el modo del perfil de GPU se confunde",
+        MODOS,
+        "  if (profile.backend === 'webgpu') return 'preciso';",
+        "  if (profile.backend === 'wasm') return 'preciso';",
+        "resalta la tarjeta equivocada como elegida",
+    ),
+    (
+        "comparar velocidades inventa un numero",
+        MODOS,
+        "  if (!modo.profile || !referencia.profile) return null;",
+        "  if (!modo.profile && !referencia.profile) return null;",
+        "un «1x mas lento» sobre un modo que no existe",
+    ),
+    (
+        "la comparacion de velocidad se da vuelta",
+        MODOS,
+        "  return a / b;",
+        "  return b / a;",
+        "dice que el preciso es mas rapido que el rapido",
+    ),
 ]
 
 
@@ -997,6 +1056,16 @@ def main() -> int:
         if passed:
             print(f"[SOBREVIVE] {name}")
             print(f"            nadie lo atrapó — el test es más débil que su nombre")
+            survivors.append(name)
+        elif failed <= 0:
+            # La suite falló SIN ningún test en rojo: no corrió. Casi siempre es un mutante
+            # que no compila —un error de sintaxis, un tipo imposible—, y eso no prueba
+            # nada: mata por romper el build, no por violar una conducta que alguien
+            # vigile. Antes esto se informaba como «muerto» y contaba como cobertura que
+            # no existía. Pasó de verdad con el mutante «el modo apagado no dice por qué».
+            print(f"[ ROTO    ] {name}")
+            print(f"            la suite no llegó a correr ({failed} tests en rojo): el")
+            print(f"            mutante no compila. No prueba nada — corregirlo.")
             survivors.append(name)
         else:
             print(f"[ muerto  ] {name}  ({failed} test(s) en rojo)")
